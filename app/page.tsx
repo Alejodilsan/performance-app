@@ -20,6 +20,7 @@ export default function DashboardPerformance() {
   const [miDesempeno, setMiDesempeno] = useState<Empleado | null>(null)
   const [perfil, setPerfil] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [invitando, setInvitando] = useState(false);
   
   const [esLider, setEsLider] = useState(false)
   const [areaLiderada, setAreaLiderada] = useState<Area | null>(null)
@@ -146,6 +147,27 @@ export default function DashboardPerformance() {
       if (!miDesempeno) return; if (puntuacion === 0) return alert("Selecciona una puntuación"); if (feedback.trim() === '') return alert("Escribe un comentario");
       await supabase.from('evaluaciones').insert([{ evaluador_id: miDesempeno.id, evaluado_id: evaluadoId, tipo, puntuacion, feedback }]);
       alert("Evaluación enviada"); recargarDatos();
+  }
+  
+  // BOT DE INVITACIONES MASIVAS
+  async function invitarEquipo() {
+    const confirmacion = window.confirm(`¿Estás seguro de enviar correos de invitación a los ${empleados.length} empleados?`);
+    if (!confirmacion) return;
+    
+    setInvitando(true);
+    try {
+      // Aquí llamaremos al "Túnel Secreto" (API) que crearemos en el siguiente paso
+      const res = await fetch('/api/invitar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empleados })
+      });
+      const data = await res.json();
+      alert(`¡Proceso terminado! 🚀\n${data.mensaje}`);
+    } catch (error) {
+      alert("Hubo un error de conexión con el servidor de correos.");
+    }
+    setInvitando(false);
   }
 
   // ==========================================
@@ -298,6 +320,9 @@ export default function DashboardPerformance() {
             </div>
           </div>
           <div className="flex items-center gap-4 shrink-0">
+            <button onClick={invitarEquipo} disabled={invitando} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-red-700 transition-colors disabled:bg-yellow-400">
+   {invitando ? '⏳ Enviando...' : '✉️ Invitar Equipo'}
+</button>
              {esAdmin && <><input type="file" accept=".xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" /><button onClick={()=>fileInputRef.current?.click()} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-emerald-700">Cargar Excel</button></>}
              <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-red-500 text-sm font-medium hover:text-red-700">Salir</button>
           </div>
