@@ -32,6 +32,7 @@ export default function DashboardPerformance() {
   const [expandidoId, setExpandidoId] = useState<number | null>(null); const [nuevoIndicador, setNuevoIndicador] = useState('');
   const [textosPlanes, setTextosPlanes] = useState<{ [key: number]: string }>({}); const [diasPlanes, setDiasPlanes] = useState<{ [key: number]: number }>({});
   const [planChatAbierto, setPlanChatAbierto] = useState<number | null>(null); const [nuevoComentario, setNuevoComentario] = useState('');
+  const [nombreEmpresa, setNombreEmpresa] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
@@ -49,24 +50,46 @@ export default function DashboardPerformance() {
   }
 
   async function verificarUsuario() {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { router.push('/login'); return }
-    const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
-    setPerfil(perfilData)
-    if (perfilData?.rol === 'admin') { obtenerDatosCorporativos(); } else { await identificarRolEmpleado(session.user.email!); }
-    setLoading(false)
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) { router.push('/login'); return }
+  const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
+  setPerfil(perfilData)
+  
+  if (perfilData?.rol === 'admin') { 
+    console.log("📍 GPS 1: Soy admin, buscando datos...");
+    obtenerDatosCorporativos(perfilData); 
+  } else { 
+    await identificarRolEmpleado(session.user.email!); 
   }
+  
+  console.log("📍 GPS 2: Apagando pantalla de carga...");
+  setLoading(false); // <--- ¡ESTA ES LA PIEZA MAESTRA QUE FALTABA!
+}
 
-  async function obtenerDatosCorporativos() {
-    const { data: areasData } = await supabase.from('areas').select('*').order('id');
-    const { data: empData } = await supabase.from('empleados').select('*, indicadores(*), planes_mejora(*, comentarios(*))').order('id', { ascending: true })
-    const { data: evalData } = await supabase.from('evaluaciones').select('*');
+
+  async function obtenerDatosCorporativos(perfilDeAcceso: any) {
+    const { data: areasData } = await supabase.from('areas').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id).order('id');
+    const { data: empData } = await supabase
+  .from('empleados')
+  .select('*, indicadores(*), planes_mejora(*, comentarios(*))') // <--- Comentarios ahora es hijo de planes_mejora
+  .eq('empresa_id', perfilDeAcceso?.empresa_id)
+  .order('id', { ascending: true });
+const { data: evalData } = await supabase.from('evaluaciones').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id);
     if (areasData) setAreas(areasData); if (evalData) setEvaluaciones(evalData);
     if (empData) {
        const dataOrdenada = empData.map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a:Plan,b:Plan)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime()) }))
        setEmpleados(dataOrdenada)
        const miFicha = dataOrdenada.find((e:any) => e.email === perfil?.email); if (miFicha) setMiDesempeno(miFicha);
     }
+    const { data: empresaData } = await supabase
+  .from('empresas')
+  .select('nombre')
+  .eq('id', perfilDeAcceso?.empresa_id)
+  .single();
+
+if (empresaData) {
+  setNombreEmpresa(empresaData.nombre);
+}
   }
 
   async function identificarRolEmpleado(email: string) {
@@ -85,7 +108,7 @@ export default function DashboardPerformance() {
     }
   }
 
-  const recargarDatos = () => { if (perfil?.rol === 'admin') obtenerDatosCorporativos(); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
+  const recargarDatos = () => { if (perfil?.rol === 'admin') obtenerDatosCorporativos(perfil); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader();
@@ -293,7 +316,7 @@ export default function DashboardPerformance() {
   // ==========================================
   // VISTA 2 y 3: ADMIN Y LÍDER (MANAGER)
   // ==========================================
-  const tituloPanel = esAdmin ? "🏢 Panel Corporativo" : `⭐ Panel de Liderazgo: ${areaLiderada?.nombre}`;
+  const tituloPanel = esAdmin ? `🏢 Panel Corporativo ${nombreEmpresa ? '- ' + nombreEmpresa : ''}` : `⭐ Panel de Liderazgo: ${areaLiderada?.nombre}`;
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-8">
