@@ -136,32 +136,87 @@ if (empresaData) {
     }; reader.readAsBinaryString(file);
   };
   
-  async function crearArea(){ if(!nuevaAreaNombre)return; await supabase.from('areas').insert([{nombre:nuevaAreaNombre, parent_id:nuevaAreaPadre?parseInt(nuevaAreaPadre):null}]); setNuevaAreaNombre(''); setNuevaAreaPadre(""); recargarDatos();}
+  async function crearArea() { 
+  if (!nuevaAreaNombre) return; 
+
+  // 1. Convertir el nombre a minúsculas para evitar que "Ventas" y "ventas" sean dos áreas distintas
+  const nombreLimpio = nuevaAreaNombre.trim();
+
+  // 2. Verificar si ya existe en esta misma empresa
+  const { data: areaExistente } = await supabase
+    .from('areas')
+    .select('id')
+    .ilike('nombre', nombreLimpio) // ilike no distingue mayúsculas de minúsculas
+    .eq('empresa_id', perfil?.empresa_id)
+    .single();
+
+  if (areaExistente) {
+    alert(`El área "${nombreLimpio}" ya existe en tu organización.`);
+    return; // Detenemos la función aquí
+  }
+
+  // 3. Si no existe, la creamos con el empresa_id
+  const { error } = await supabase.from('areas').insert([{
+    nombre: nombreLimpio, 
+    parent_id: nuevaAreaPadre ? parseInt(nuevaAreaPadre) : null, 
+    empresa_id: perfil?.empresa_id
+  }]);
+
+  // 4. Revisar si hubo error y avisar
+  if (error) {
+    alert("Hubo un error al crear el área. Intenta de nuevo.");
+    console.error(error);
+  } else {
+    alert(`¡Área "${nombreLimpio}" creada con éxito!`);
+    setNuevaAreaNombre(''); // Limpiamos el texto del input
+    recargarDatos(); // Actualizamos la pantalla
+  }
+}
   async function asignarPadreArea(aid:number, pid:string){ const npid=pid===""?null:parseInt(pid); if(npid===aid)return; await supabase.from('areas').update({parent_id:npid}).eq('id',aid); recargarDatos();}
   async function asignarLiderArea(aid:number, lid:string){ await supabase.from('areas').update({lider_id:lid===""?null:parseInt(lid)}).eq('id',aid); recargarDatos();}
   async function asignarAreaEmpleado(eid:number, aid:string){ await supabase.from('empleados').update({area_id:aid===""?null:parseInt(aid)}).eq('id',eid); recargarDatos();}
-  async function agregarEmpleado(e:React.FormEvent){ e.preventDefault(); await supabase.from('empleados').insert([{nombre,puesto,email:emailEmpleado,cumplimiento_general:0}]); setNombre('');setPuesto('');setEmailEmpleado(''); recargarDatos();}
+  async function agregarEmpleado(e:React.FormEvent){ e.preventDefault(); await supabase.from('empleados').insert([{nombre, puesto, email:emailEmpleado, cumplimiento_general:0, empresa_id: perfil?.empresa_id}]); recargarDatos(); }
   async function agregarIndicador(eid:number){ if(!nuevoIndicador)return; await supabase.from('indicadores').insert([{empleado_id:eid, titulo:nuevoIndicador,progreso:0}]); setNuevoIndicador(''); recargarDatos();}
   
   // CORRECCIÓN: Actualización en tiempo real del promedio de KPIs
-  async function actualizarIndicador(id:number, val:number, eid:number){ 
-      const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado; 
-      const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
-      
-      const updatedList = targetList.map(emp => {
-          if (emp.id === eid) {
-             const nuevosIndicadores = emp.indicadores?.map(i => i.id === id ? { ...i, progreso: val } : i) || [];
-             const suma = nuevosIndicadores.reduce((acc, curr) => acc + curr.progreso, 0);
-             const nuevoPromedio = nuevosIndicadores.length > 0 ? Math.round(suma / nuevosIndicadores.length) : 0;
-             
-             return { ...emp, indicadores: nuevosIndicadores, cumplimiento_general: nuevoPromedio };
-          }
-          return emp;
-      });
+ // CORRECCIÓN: Actualización en tiempo real del promedio de KPIs
+  async function actualizarIndicador(id:number, val:number, eid:number){
+    const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
+    const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
 
-      setter(updatedList);
-      await supabase.from('indicadores').update({progreso:val}).eq('id',id);
+    // Creamos una variable para atrapar el promedio antes de enviarlo a Supabase
+    let nuevoPromedioCalculado = 0; 
+
+    const updatedList = targetList.map(emp => {
+      if (emp.id === eid) {
+        const nuevosIndicadores = emp.indicadores?.map((i:any) => i.id === id ? { ...i, progreso: val } : i) || [];
+        const suma = nuevosIndicadores.reduce((acc:any, curr:any) => acc + curr.progreso, 0);
+        const nuevoPromedio = nuevosIndicadores.length > 0 ? Math.round(suma / nuevosIndicadores.length) : 0;
+        
+        // Atrapamos el valor calculado
+        nuevoPromedioCalculado = nuevoPromedio; 
+
+        return { ...emp, indicadores: nuevosIndicadores, cumplimiento_general: nuevoPromedio };
+      }
+      return emp;
+    });
+
+    // 1. Actualizamos la pantalla de inmediato (Efecto visual rápido)
+    setter(updatedList);
+
+    // 2. Guardamos la barrita azul (KPI) en Supabase
+    await supabase.from('indicadores').update({progreso:val}).eq('id', id);
+
+    // 3. ¡EL ESLABÓN PERDIDO! Guardamos el nuevo Score (Promedio) en el empleado
+    await supabase.from('empleados').update({cumplimiento_general: nuevoPromedioCalculado}).eq('id', eid);
   }
+  async function actualizarPotencial(eid: number, nuevoPotencial: number) {
+  // 1. Guardamos el nuevo valor (1, 2 o 3) en Supabase
+  await supabase.from('empleados').update({ potencial_score: nuevoPotencial }).eq('id', eid);
+  
+  // 2. Recargamos la pantalla para reflejar el cambio
+  recargarDatos(); 
+}
 
   async function crearPlan(eid:number){ const txt=textosPlanes[eid]; if(!txt)return; const lim=new Date(); lim.setDate(lim.getDate()+(diasPlanes[eid]||7)); await supabase.from('planes_mejora').insert([{empleado_id:eid, compromiso:txt, created_at:new Date().toISOString(), fecha_limite:lim.toISOString(), estado:'pendiente'}]); setTextosPlanes({...textosPlanes,[eid]:''}); recargarDatos();}
   async function completarPlan(pid:number, est:string){ await supabase.from('planes_mejora').update({estado:est==='pendiente'?'completado':'pendiente'}).eq('id',pid); recargarDatos();}
@@ -357,7 +412,7 @@ if (empresaData) {
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-3 items-end"> 
                     <div className="flex flex-col gap-1"> 
                         <label className="text-xs font-bold text-slate-500 uppercase">Nueva Área</label> 
-                        <input className="border border-slate-300 p-2 rounded-md text-sm bg-slate-50 w-64 outline-none focus:border-blue-500" placeholder="Ej: Ventas..." value={nuevaAreaNombre} onChange={e => setNuevaAreaNombre(e.target.value)} /> 
+                        <input className="border border-slate-400 p-2 rounded-md text-sm bg-white text-slate-900 placeholder-slate-500 w-64 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600" placeholder="Ej: Ventas..." value={nuevaAreaNombre} onChange={e => setNuevaAreaNombre(e.target.value)} />
                     </div> 
                     <div className="flex flex-col gap-1"> 
                         <label className="text-xs font-bold text-slate-500 uppercase">Jerarquía</label> 
@@ -441,7 +496,8 @@ if (empresaData) {
                         <h3 className="text-4xl font-black flex items-center gap-2">{metricasBI.promEvals} <span className="text-lg">⭐</span></h3>
                     </div>
                 </div>
-                
+                {/* MATRIZ NINE-BOX */}
+<MatrizNineBox empleados={empleados} />
                 {/* FILA 2: Gráficos Operativos */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {esAdmin && (
@@ -611,4 +667,229 @@ function BtnMenu({children, active, onClick}:any) { return <button onClick={onCl
 function CardKpi({title, value, sub, color}:any) { return <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow"><p className="text-sm text-slate-500 font-bold uppercase tracking-wide">{title}</p><h3 className={`text-5xl font-black mt-3 mb-1 ${color}`}>{value}</h3><p className="text-xs text-slate-400 font-medium">{sub}</p></div> }
 function construirArbol(areas:Area[], empleados:Empleado[]) { const areaMap = new Map(); areas.forEach(a => areaMap.set(a.id, { ...a, children: [], empleados: [] })); empleados.forEach(e => { if (e.area_id && areaMap.has(e.area_id)) areaMap.get(e.area_id).empleados.push(e); }); const raiz: Area[] = []; areaMap.forEach(area => { if (area.parent_id && areaMap.has(area.parent_id)) areaMap.get(area.parent_id).children.push(area); else raiz.push(area); }); return raiz; }
 function NodoOrganigrama({ area }: { area: Area }) { return ( <div className="flex flex-col items-center"> <div className="relative flex flex-col w-56 bg-white rounded-xl shadow-md border border-slate-200 transition-transform hover:-translate-y-1 hover:shadow-xl z-10"> {area.lider_id && ( <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 text-[10px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1 border border-white whitespace-nowrap z-20"> 👑 Lider Asignado </div> )} <div className="bg-gradient-to-r from-slate-800 to-slate-700 text-white p-3 rounded-t-xl text-center border-b-4 border-blue-500"> <h3 className="font-bold text-sm tracking-wide truncate px-2" title={area.nombre}>{area.nombre}</h3> </div> <div className="p-2 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar bg-slate-50 rounded-b-xl"> {area.empleados && area.empleados.length > 0 ? ( area.empleados.map(emp => ( <div key={emp.id} className="text-xs text-slate-700 bg-white p-2 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm hover:border-blue-300 transition-colors"> <span className="truncate w-32 font-medium" title={emp.nombre}>{emp.nombre}</span> <span className={`font-bold text-[10px] px-2 py-0.5 rounded-full ${emp.cumplimiento_general < 70 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}> {emp.cumplimiento_general}% </span> </div> )) ) : ( <div className="text-[10px] text-slate-400 text-center py-3 italic">Sin asignaciones</div> )} </div> </div> {area.children && area.children.length > 0 && ( <> <div className="w-[2px] h-8 bg-slate-300"></div> <div className="flex justify-center"> {area.children.map((hijo, index) => { const isFirst = index === 0; const isLast = index === area.children!.length - 1; const isOnly = area.children!.length === 1; return ( <div key={hijo.id} className="relative flex flex-col items-center pt-8 px-2 md:px-4"> {!isOnly && ( <div className={`absolute top-0 h-[2px] bg-slate-300 ${isFirst ? 'left-1/2 right-0' : ''} ${isLast ? 'left-0 right-1/2' : ''} ${!isFirst && !isLast ? 'left-0 right-0' : ''} `}></div> )} <div className="absolute top-0 w-[2px] h-8 bg-slate-300 left-1/2 -translate-x-1/2"></div> <NodoOrganigrama area={hijo} /> </div> ) })} </div> </> )} </div> ) }
-function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: any) { const { asignarAreaEmpleado, actualizarIndicador, agregarIndicador, crearPlan, completarPlan, setExpandidoId, expandidoId, setNuevoIndicador, nuevoIndicador, textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevoComentario, setNuevoComentario } = funciones; return ( <div className={`bg-white rounded-xl shadow-sm border p-6 transition-all duration-300 hover:shadow-md ${esLider ? 'border-blue-400 ring-2 ring-blue-400 shadow-blue-100' : 'border-slate-200'}`}> <div className="flex justify-between items-start mb-4"> <div> <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg"> {emp.nombre} {esLider && <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-black tracking-widest border border-blue-200">LÍDER</span>} </h3> <p className="text-xs text-slate-500 font-medium mt-0.5">{emp.puesto}</p> {allowEdit && ( <select className="mt-2 text-[10px] bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-slate-600 outline-none focus:border-blue-400 w-full" value={emp.area_id || ""} onChange={(e) => asignarAreaEmpleado(emp.id, e.target.value)}> <option value="">-- Reasignar Área --</option> {areas.map((a:any) => <option key={a.id} value={a.id}>{a.nombre}</option>)} </select> )} </div> <div className="flex flex-col items-end"> <span className={`text-3xl font-black transition-all duration-500 ${emp.cumplimiento_general < 70 ? 'text-red-500' : 'text-blue-600'}`}>{emp.cumplimiento_general}%</span> <span className="text-[9px] text-slate-400 uppercase font-bold mt-1">Score</span> </div> </div> <div className="w-full bg-slate-100 rounded-full h-2 mb-5 overflow-hidden"> <div className={`h-2 rounded-full transition-all duration-1000 ${emp.cumplimiento_general < 70 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${emp.cumplimiento_general}%` }}></div> </div> {emp.planes_mejora?.length > 0 && ( <div className="mt-5 pt-4 border-t border-slate-100 bg-slate-50 -mx-6 px-6 pb-2"> <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">🚀 Action Plans</p> <div className="space-y-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar"> {emp.planes_mejora.filter((p:any)=>allowEdit?true:p.estado!=='completado').map((plan:any) => { const gantt = calcularGantt(plan.created_at, plan.fecha_limite); return ( <div key={plan.id} className="relative bg-white p-3 rounded-lg border border-slate-200 shadow-sm"> <div className="flex justify-between items-center mb-2"> <span className={`text-xs font-semibold w-[60%] truncate ${plan.estado==='completado' ? 'text-slate-400 line-through' : 'text-slate-700'}`} title={plan.compromiso}>{plan.compromiso}</span> <div className="flex gap-1.5"> <button onClick={() => setPlanChatAbierto(planChatAbierto === plan.id ? null : plan.id)} className={`text-[10px] px-2 py-1 rounded-md font-bold transition-colors ${plan.comentarios?.length > 0 ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}> 💬 {plan.comentarios?.length || 0} </button> {allowEdit && ( <button onClick={() => completarPlan(plan.id, plan.estado)} className={`text-[10px] px-2 py-1 rounded-md font-black border transition-colors ${plan.estado === 'completado' ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-white text-slate-400 border-slate-200 hover:bg-green-50 hover:text-green-600 hover:border-green-300'}`}> {plan.estado === 'completado' ? 'UNDO' : '✔ OK'} </button> )} </div> </div> {plan.estado !== 'completado' && ( <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative mt-1.5 mb-1"> <div className={`absolute top-0 left-0 h-full transition-all duration-1000 ${gantt.esVencido ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${gantt.porcentajeAvance}%` }}></div> </div> )} <div className="flex justify-between px-1 text-[8px] font-bold text-slate-400 uppercase mt-1"> <span>{gantt.fechaInicioStr}</span> <span className={gantt.esVencido && plan.estado !== 'completado' ? 'text-red-500' : ''}>{plan.estado === 'completado' ? 'Completado' : (gantt.esVencido ? 'Vencido' : gantt.fechaFinStr)}</span> </div> {planChatAbierto === plan.id && ( <div className="mt-3 bg-slate-50 p-2 rounded-lg border border-slate-200 animate-in slide-in-from-top-2"> <div className="max-h-32 overflow-y-auto space-y-2 mb-2 custom-scrollbar"> {plan.comentarios?.map((c:any) => ( <div key={c.id} className="text-[10px] bg-white p-2 rounded shadow-sm border border-slate-100"> <span className="font-black text-blue-800">{c.autor}: </span><span className="text-slate-600">{c.texto}</span> </div> ))} {(!plan.comentarios || plan.comentarios.length === 0) && <p className="text-[10px] text-slate-400 italic text-center py-2">No hay comentarios aún.</p>} </div> <div className="flex gap-1.5"> <input className="flex-1 text-[10px] border border-slate-300 rounded-md p-1.5 outline-none focus:border-blue-400" placeholder="Añadir comentario..." value={nuevoComentario} onChange={e => setNuevoComentario(e.target.value)} onKeyDown={e => {if(e.key === 'Enter') enviarComentario(plan.id)}} /> <button onClick={() => enviarComentario(plan.id)} className="bg-blue-600 text-white px-3 rounded-md text-[10px] font-bold hover:bg-blue-700">Enviar</button> </div> </div> )} </div> ) })} </div> </div> )} {allowEdit && emp.cumplimiento_general < 70 && ( <div className="mt-4 flex gap-2"> <input className="flex-1 text-xs border border-red-200 bg-red-50 p-2 rounded-md text-red-800 outline-none focus:ring-1 focus:ring-red-400 placeholder:text-red-300" placeholder="Asignar compromiso..." value={textosPlanes[emp.id] || ''} onChange={e => setTextosPlanes({ ...textosPlanes, [emp.id]: e.target.value })} /> <select className="text-xs border border-red-200 bg-red-50 text-red-800 rounded-md outline-none" value={diasPlanes[emp.id] || 7} onChange={e => setDiasPlanes({ ...diasPlanes, [emp.id]: parseInt(e.target.value) })}> <option value={3}>3d</option><option value={7}>7d</option><option value={15}>15d</option> </select> <button onClick={() => crearPlan(emp.id)} className="bg-red-500 text-white px-3 rounded-md font-black hover:bg-red-600 transition-colors">+</button> </div> )} <button onClick={() => setExpandidoId(expandidoId === emp.id ? null : emp.id)} className={`mt-4 w-full text-center text-[10px] py-2 rounded-md transition-colors font-bold uppercase tracking-widest ${expandidoId === emp.id ? 'bg-slate-100 text-slate-500' : 'text-blue-500 bg-blue-50 hover:bg-blue-100'}`}> {expandidoId === emp.id ? '▲ Ocultar KPIs' : '▼ Gestionar KPIs'} </button> {expandidoId === emp.id && ( <div className="mt-2 pt-4 border-t border-slate-200 bg-slate-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-xl"> {emp.indicadores?.map((ind:any) => ( <div key={ind.id} className="mb-4"> <div className="flex justify-between text-xs mb-1.5 font-semibold text-slate-700"> <span>{ind.titulo}</span> <span className={ind.progreso < 70 ? 'text-red-500' : 'text-blue-600'}>{ind.progreso}%</span> </div> {allowEdit ? ( <input type="range" className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" value={ind.progreso} onChange={(e) => actualizarIndicador(ind.id, parseInt(e.target.value), emp.id)} /> ) : ( <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{width:`${ind.progreso}%`}}></div></div> )} </div> ))} {allowEdit && ( <div className="flex gap-2 mt-5 pt-4 border-t border-slate-200"> <input className="flex-1 p-2 text-xs border border-slate-300 rounded-md outline-none focus:border-slate-500" placeholder="Nombre del nuevo KPI..." value={nuevoIndicador} onChange={e => setNuevoIndicador(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') agregarIndicador(emp.id);}} /> <button onClick={() => agregarIndicador(emp.id)} className="bg-slate-800 text-white px-4 rounded-md text-xs font-bold hover:bg-slate-900 transition-colors">Añadir</button> </div> )} </div> )} </div> ) }
+function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: any) { 
+  const { asignarAreaEmpleado, actualizarIndicador, agregarIndicador, crearPlan, completarPlan, setExpandidoId, expandidoId, setNuevoIndicador, nuevoIndicador, textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevoComentario, setNuevoComentario } = funciones; 
+  
+  return ( 
+    <div className={`bg-white rounded-xl shadow-sm border p-6 transition-all duration-300 hover:shadow-md ${esLider ? 'border-blue-400 ring-2 ring-blue-400 shadow-blue-100' : 'border-slate-200'}`}> 
+      <div className="flex justify-between items-start mb-4"> 
+        <div> 
+          <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg"> 
+            {emp.nombre} 
+            {esLider && <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-black tracking-widest border border-blue-200">LÍDER</span>} 
+          </h3> 
+          <p className="text-xs text-slate-500 font-medium mt-0.5">{emp.puesto}</p> 
+          
+          {allowEdit && ( 
+            <select className="mt-2 text-[10px] bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-slate-600 outline-none focus:border-blue-400 w-full" value={emp.area_id || ""} onChange={(e) => asignarAreaEmpleado(emp.id, e.target.value)}>
+              <option value="">-- Reasignar Área --</option> 
+              {areas.map((a:any) => <option key={a.id} value={a.id}>{a.nombre}</option>)} 
+            </select> 
+          )} 
+
+          {/* AQUÍ QUEDÓ EL NUEVO SELECTOR DE POTENCIAL (Fuera del selector de área) */}
+          {allowEdit && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold block mb-1">
+                Potencial (Nine-Box)
+              </label>
+              <select 
+                defaultValue={emp.potencial_score || 1}
+                onChange={async (e) => {
+                  const nuevoPotencial = parseInt(e.target.value);
+                  await supabase.from('empleados').update({ potencial_score: nuevoPotencial }).eq('id', emp.id);
+                  alert(`Potencial actualizado a ${e.target.options[e.target.selectedIndex].text}`);
+                }}
+                className="w-full p-2 text-xs bg-white border border-slate-300 rounded-md text-slate-700 outline-none focus:border-blue-500 shadow-sm"
+              >
+                <option value="1">🌱 Bajo (1)</option>
+                <option value="2">🚀 Medio (2)</option>
+                <option value="3">⭐ Alto (3)</option>
+              </select>
+            </div>
+          )}
+
+        </div> 
+        
+        <div className="flex flex-col items-end"> 
+          <span className={`text-3xl font-black transition-all duration-500 ${emp.cumplimiento_general < 70 ? 'text-red-500' : 'text-blue-600'}`}>{emp.cumplimiento_general}%</span> 
+          <span className="text-[9px] text-slate-400 uppercase font-bold mt-1">Score</span> 
+        </div> 
+      </div> 
+      
+      <div className="w-full bg-slate-100 rounded-full h-2 mb-5 overflow-hidden"> 
+        <div className={`h-2 rounded-full transition-all duration-1000 ${emp.cumplimiento_general < 70 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${emp.cumplimiento_general}%` }}></div> 
+      </div> 
+      
+      {emp.planes_mejora?.length > 0 && ( 
+        <div className="mt-5 pt-4 border-t border-slate-100 bg-slate-50 -mx-6 px-6 pb-2"> 
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">🚀 Action Plans</p> 
+          <div className="space-y-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar"> 
+            {emp.planes_mejora.filter((p:any)=>allowEdit?true:p.estado!=='completado').map((plan:any) => { 
+              const gantt = calcularGantt(plan.created_at, plan.fecha_limite); 
+              return ( 
+                <div key={plan.id} className="relative bg-white p-3 rounded-lg border border-slate-200 shadow-sm"> 
+                  <div className="flex justify-between items-center mb-2"> 
+                    <span className={`text-xs font-semibold w-[60%] truncate ${plan.estado==='completado' ? 'text-slate-400 line-through' : 'text-slate-700'}`} title={plan.compromiso}>{plan.compromiso}</span> 
+                    <div className="flex gap-1.5"> 
+                      <button onClick={() => setPlanChatAbierto(planChatAbierto === plan.id ? null : plan.id)} className={`text-[10px] px-2 py-1 rounded-md font-bold transition-colors ${plan.comentarios?.length > 0 ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}> 💬 {plan.comentarios?.length || 0} </button> 
+                      {allowEdit && ( <button onClick={() => completarPlan(plan.id, plan.estado)} className={`text-[10px] px-2 py-1 rounded-md font-black border transition-colors ${plan.estado === 'completado' ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-white text-slate-400 border-slate-200 hover:bg-green-50 hover:text-green-600 hover:border-green-300'}`}> {plan.estado === 'completado' ? 'UNDO' : '✔ OK'} </button> )} 
+                    </div> 
+                  </div> 
+                  {plan.estado !== 'completado' && ( 
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative mt-1.5 mb-1"> 
+                      <div className={`absolute top-0 left-0 h-full transition-all duration-1000 ${gantt.esVencido ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${gantt.porcentajeAvance}%` }}></div> 
+                    </div> 
+                  )} 
+                  <div className="flex justify-between px-1 text-[8px] font-bold text-slate-400 uppercase mt-1"> 
+                    <span>{gantt.fechaInicioStr}</span> 
+                    <span className={gantt.esVencido && plan.estado !== 'completado' ? 'text-red-500' : ''}>{plan.estado === 'completado' ? 'Completado' : (gantt.esVencido ? 'Vencido' : gantt.fechaFinStr)}</span> 
+                  </div> 
+                  {planChatAbierto === plan.id && ( 
+                    <div className="mt-3 bg-slate-50 p-2 rounded-lg border border-slate-200 animate-in slide-in-from-top-2"> 
+                      <div className="max-h-32 overflow-y-auto space-y-2 mb-2 custom-scrollbar"> 
+                        {plan.comentarios?.map((c:any) => ( 
+                          <div key={c.id} className="text-[10px] bg-white p-2 rounded shadow-sm border border-slate-100"> 
+                            <span className="font-black text-blue-800">{c.autor}: </span><span className="text-slate-600">{c.texto}</span> 
+                          </div> 
+                        ))} 
+                        {(!plan.comentarios || plan.comentarios.length === 0) && <p className="text-[10px] text-slate-400 italic text-center py-2">No hay comentarios aún.</p>} 
+                      </div> 
+                      <div className="flex gap-1.5"> 
+                        <input className="flex-1 text-[10px] border border-slate-300 rounded-md p-1.5 outline-none focus:border-blue-400" placeholder="Añadir comentario..." value={nuevoComentario} onChange={e => setNuevoComentario(e.target.value)} onKeyDown={e => {if(e.key === 'Enter') enviarComentario(plan.id)}} /> 
+                        <button onClick={() => enviarComentario(plan.id)} className="bg-blue-600 text-white px-3 rounded-md text-[10px] font-bold hover:bg-blue-700">Enviar</button> 
+                      </div> 
+                    </div> 
+                  )} 
+                </div> 
+              ) 
+            })} 
+          </div> 
+        </div> 
+      )} 
+      
+      {allowEdit && emp.cumplimiento_general < 70 && ( 
+        <div className="mt-4 flex gap-2"> 
+          <input className="flex-1 text-xs border border-red-200 bg-red-50 p-2 rounded-md text-red-800 outline-none focus:ring-1 focus:ring-red-400 placeholder:text-red-300" placeholder="Asignar compromiso..." value={textosPlanes[emp.id] || ''} onChange={e => setTextosPlanes({ ...textosPlanes, [emp.id]: e.target.value })} /> 
+          <select className="text-xs border border-red-200 bg-red-50 text-red-800 rounded-md outline-none" value={diasPlanes[emp.id] || 7} onChange={e => setDiasPlanes({ ...diasPlanes, [emp.id]: parseInt(e.target.value) })}> 
+            <option value={3}>3d</option><option value={7}>7d</option><option value={15}>15d</option> 
+          </select> 
+          <button onClick={() => crearPlan(emp.id)} className="bg-red-500 text-white px-3 rounded-md font-black hover:bg-red-600 transition-colors">+</button> 
+        </div> 
+      )} 
+      
+      <button onClick={() => setExpandidoId(expandidoId === emp.id ? null : emp.id)} className={`mt-4 w-full text-center text-[10px] py-2 rounded-md transition-colors font-bold uppercase tracking-widest ${expandidoId === emp.id ? 'bg-slate-100 text-slate-500' : 'text-blue-500 bg-blue-50 hover:bg-blue-100'}`}> 
+        {expandidoId === emp.id ? '▲ Ocultar KPIs' : '▼ Gestionar KPIs'} 
+      </button> 
+      
+      {expandidoId === emp.id && ( 
+        <div className="mt-2 pt-4 border-t border-slate-200 bg-slate-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-xl"> 
+          {emp.indicadores?.map((ind:any) => ( 
+            <div key={ind.id} className="mb-4"> 
+              <div className="flex justify-between text-xs mb-1.5 font-semibold text-slate-700"> 
+                <span>{ind.titulo}</span> 
+                <span className={ind.progreso < 70 ? 'text-red-500' : 'text-blue-600'}>{ind.progreso}%</span> 
+              </div> 
+              {allowEdit ? ( 
+                <input type="range" className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" value={ind.progreso} onChange={(e) => actualizarIndicador(ind.id, parseInt(e.target.value), emp.id)} /> 
+              ) : ( 
+                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{width:`${ind.progreso}%`}}></div></div> 
+              )} 
+            </div> 
+          ))} 
+          
+          {allowEdit && ( 
+            <div className="flex gap-2 mt-5 pt-4 border-t border-slate-200"> 
+              <input className="flex-1 p-2 text-xs border border-slate-300 rounded-md outline-none focus:border-slate-500" placeholder="Nombre del nuevo KPI..." value={nuevoIndicador} onChange={e => setNuevoIndicador(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') agregarIndicador(emp.id);}} /> 
+              <button onClick={() => agregarIndicador(emp.id)} className="bg-slate-800 text-white px-4 rounded-md text-xs font-bold hover:bg-slate-900 transition-colors">Añadir</button> 
+            </div> 
+          )} 
+        </div> 
+      )} 
+    </div> 
+  );
+}
+function MatrizNineBox({ empleados }: { empleados: any[] }) {
+  // 1. Definimos los 9 cuadrantes (Coordenadas Y, X)
+  const cuadrantes = [
+    { id: '3-1', titulo: 'Enigma', desc: 'Alto Potencial / Bajo Desempeño', color: 'bg-orange-100 border-orange-300' },
+    { id: '3-2', titulo: 'Futura Estrella', desc: 'Alto Potencial / Medio Desempeño', color: 'bg-blue-100 border-blue-300' },
+    { id: '3-3', titulo: 'Estrella', desc: 'Alto Potencial / Alto Desempeño', color: 'bg-green-200 border-green-400 shadow-inner' },
+    
+    { id: '2-1', titulo: 'Dilema', desc: 'Medio Potencial / Bajo Desempeño', color: 'bg-red-100 border-red-300' },
+    { id: '2-2', titulo: 'Jugador Clave', desc: 'Medio Potencial / Medio Desempeño', color: 'bg-slate-100 border-slate-300' },
+    { id: '2-3', titulo: 'Alto Impacto', desc: 'Medio Potencial / Alto Desempeño', color: 'bg-blue-100 border-blue-300' },
+    
+    { id: '1-1', titulo: 'Riesgo', desc: 'Bajo Potencial / Bajo Desempeño', color: 'bg-red-200 border-red-400 shadow-inner' },
+    { id: '1-2', titulo: 'Efectivo', desc: 'Bajo Potencial / Medio Desempeño', color: 'bg-orange-100 border-orange-300' },
+    { id: '1-3', titulo: 'Especialista', desc: 'Bajo Potencial / Alto Desempeño', color: 'bg-slate-100 border-slate-300' },
+  ];
+
+  // 2. Función para clasificar el Desempeño (Score 0-100) en niveles 1, 2 o 3
+  const obtenerNivelDesempeño = (score: number) => {
+    if (score < 60) return 1; // Bajo
+    if (score < 85) return 2; // Medio
+    return 3; // Alto
+  };
+
+  return (
+    <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200 mt-6">
+      <h2 className="text-2xl font-black text-slate-800 mb-2">Matriz de Talento (Nine-Box)</h2>
+      <p className="text-sm text-slate-500 mb-6">Clasificación automática basada en el cumplimiento de KPIs y potencial evaluado.</p>
+
+      {/* Contenedor principal con Ejes */}
+      <div className="relative pl-8 pb-8">
+        {/* Eje Y: Potencial */}
+        <div className="absolute left-0 top-0 bottom-8 w-8 flex flex-col justify-center items-center">
+          <span className="transform -rotate-90 text-xs font-bold text-slate-400 tracking-widest uppercase whitespace-nowrap">
+            Potencial (Crecimiento) ➔
+          </span>
+        </div>
+
+        {/* La Cuadrícula 3x3 */}
+        <div className="grid grid-cols-3 grid-rows-3 gap-2 h-[600px]">
+          {cuadrantes.map((c) => {
+            // Buscamos qué empleados caen en este cuadrante
+            const [potencialReq, desempeñoReq] = c.id.split('-').map(Number);
+            const empleadosAqui = empleados.filter(emp => {
+              const pot = emp.potencial_score || 1;
+              const des = obtenerNivelDesempeño(emp.cumplimiento_general || 0);
+              return pot === potencialReq && des === desempeñoReq;
+            });
+
+            return (
+              <div key={c.id} className={`p-3 rounded-lg border-2 flex flex-col ${c.color} transition-all hover:shadow-md`}>
+                <div className="mb-2 border-b border-white/50 pb-2">
+                  <h3 className="font-bold text-slate-800 text-sm">{c.titulo}</h3>
+                  <p className="text-[9px] text-slate-600 uppercase font-semibold">{c.desc}</p>
+                </div>
+                
+                {/* Fichas de los empleados */}
+                <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+                  {empleadosAqui.map(emp => (
+                    <div key={emp.id} className="bg-white/80 backdrop-blur-sm p-2 rounded text-xs border border-white font-medium text-slate-700 shadow-sm flex justify-between items-center">
+                      <span className="truncate pr-2">{emp.nombre}</span>
+                      <span className="text-[10px] bg-slate-200 px-1.5 rounded text-slate-600 font-bold">{emp.cumplimiento_general}%</span>
+                    </div>
+                  ))}
+                  {empleadosAqui.length === 0 && (
+                    <div className="h-full flex items-center justify-center opacity-30">
+                      <span className="text-xs font-medium text-slate-500">Vacío</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Eje X: Desempeño */}
+        <div className="absolute bottom-0 left-8 right-0 h-8 flex justify-center items-center">
+          <span className="text-xs font-bold text-slate-400 tracking-widest uppercase">
+            Desempeño (Score KPIs) ➔
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
