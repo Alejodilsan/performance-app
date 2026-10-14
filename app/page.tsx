@@ -194,39 +194,122 @@ const toggleArea = (id: number) => {
 
   const recargarDatos = () => { if (perfil?.rol === 'admin') obtenerDatosCorporativos(perfil); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
 
+  const descargarPlantilla = () => {
+    // Datos de ejemplo para que el HR Manager sepa cómo llenar el Excel
+    const datosEjemplo = [
+      {
+        "Nombre": "Ejemplo: Ana López",
+        "Email": "ana.lopez@empresa.com",
+        "Puesto": "Desarrolladora Senior",
+        "Area": "Tecnología",
+        "Reporta A": "Operaciones"
+      },
+      {
+        "Nombre": "Ejemplo: Carlos Ruiz",
+        "Email": "carlos@empresa.com",
+        "Puesto": "Líder de Producto",
+        "Area": "Producto",
+        "Reporta A": "Operaciones"
+      }
+    ];
+
+    // Crea la hoja de trabajo (worksheet) desde el objeto JSON
+    const worksheet = XLSX.utils.json_to_sheet(datosEjemplo);
+
+    // Auto-ajustar el ancho de las columnas para que se vea limpio
+    worksheet['!cols'] = [
+      { wch: 25 }, // Ancho columna Nombre
+      { wch: 30 }, // Ancho columna Email
+      { wch: 25 }, // Ancho columna Puesto
+      { wch: 20 }, // Ancho columna Area
+      { wch: 20 }  // Ancho columna Reporta A
+    ];
+
+    // Crea el libro de trabajo (workbook) y le añade la hoja
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Empleados");
+
+    // Fuerza la descarga como archivo .xlsx nativo
+    XLSX.writeFile(workbook, "Plantilla_Carga_Colaboradores.xlsx");
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader();
+    const file = e.target.files?.[0]; 
+    if (!file) return; 
+    const reader = new FileReader();
+    
     reader.onload = async (evt) => {
-      const wb = XLSX.read(evt.target?.result, { type: 'binary' }); const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+      const wb = XLSX.read(evt.target?.result, { type: 'binary' }); 
+      const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
       let areasActivas = [...areas];
       const empresaId = perfil?.empresa_id;
+
+      // 1. Filtro estricto: Guardamos todos los correos actuales limpios (sin espacios y en minúscula)
+      const correosExistentes = new Set(empleados.map(emp => emp.email.trim().toLowerCase()));
+      let agregados = 0;
+
       for (const row of data) {
-        const emailRow = row['Email'] || row['email'];
-        if (emailRow) {
-          let parentId = null; let areaId = null; const reportaARow = row['Reporta A'] || row['Reporta a']; const areaRow = row['Area'] || row['area'];
-          if (reportaARow) {
-            let padreExist = areasActivas.find(a => a.nombre.toLowerCase() === String(reportaARow).toLowerCase());
-            if (padreExist) parentId = padreExist.id;
-            else { const { data: nP } = await supabase.from('areas').insert([{ nombre: reportaARow, empresa_id: empresaId }]).select().single(); if (nP) { parentId = nP.id; areasActivas.push(nP); } }
+        // Soporta varias formas en las que puede venir escrita la cabecera en el Excel
+        const emailRow = row['Email'] || row['email'] || row['Correo'];
+        if (!emailRow) continue;
+
+        // Limpiamos espacios accidentales del Excel
+        const emailLimpio = String(emailRow).trim().toLowerCase();
+
+        // 2. Verificación total: Si ya existe en la BD o en esta misma carga, lo saltamos
+        if (correosExistentes.has(emailLimpio)) continue; 
+        
+        // Lo añadimos a la lista de "ya procesados" para no duplicarlo si viene 2 veces
+        correosExistentes.add(emailLimpio); 
+
+        let parentId = null; let areaId = null; 
+        const reportaARow = row['Reporta A'] || row['Reporta a']; 
+        const areaRow = row['Area'] || row['area'];
+
+        if (reportaARow) {
+          const nombrePadre = String(reportaARow).trim();
+          let padreExist = areasActivas.find(a => a.nombre.toLowerCase() === nombrePadre.toLowerCase());
+          if (padreExist) parentId = padreExist.id;
+          else { 
+            const { data: nP } = await supabase.from('areas').insert([{ nombre: nombrePadre, empresa_id: empresaId }]).select().single(); 
+            if (nP) { parentId = nP.id; areasActivas.push(nP); } 
           }
-          if (areaRow) {
-            let aExist = areasActivas.find(a => a.nombre.toLowerCase() === String(areaRow).toLowerCase());
-            if (aExist) { areaId = aExist.id; if (parentId && !aExist.parent_id) { await supabase.from('areas').update({ parent_id: parentId }).eq('id', areaId); aExist.parent_id = parentId; } }
-            else { const { data: nA } = await supabase.from('areas').insert([{ nombre: areaRow, parent_id: parentId, empresa_id: empresaId }]).select().single(); if (nA) { areaId = nA.id; areasActivas.push(nA); } }
-          }
-          await supabase.from('empleados').insert([{
-            nombre: row['Nombre'] || 'X',
-            email: emailRow,
-            puesto: row['Puesto'] || 'Emp',
-            area_id: areaId,
-            cumplimiento_general: 0,
-            empresa_id: empresaId
-          }]);
         }
+
+        if (areaRow) {
+          const nombreArea = String(areaRow).trim();
+          let aExist = areasActivas.find(a => a.nombre.toLowerCase() === nombreArea.toLowerCase());
+          if (aExist) { 
+            areaId = aExist.id; 
+            if (parentId && !aExist.parent_id) { 
+              await supabase.from('areas').update({ parent_id: parentId }).eq('id', areaId); 
+              aExist.parent_id = parentId; 
+            } 
+          }
+          else { 
+            const { data: nA } = await supabase.from('areas').insert([{ nombre: nombreArea, parent_id: parentId, empresa_id: empresaId }]).select().single(); 
+            if (nA) { areaId = nA.id; areasActivas.push(nA); } 
+          }
+        }
+
+        // Insertamos el empleado limpio
+        await supabase.from('empleados').insert([{
+          nombre: String(row['Nombre'] || row['nombre'] || 'Sin Nombre').trim(),
+          email: emailLimpio,
+          puesto: String(row['Puesto'] || row['puesto'] || 'Colaborador').trim(),
+          area_id: areaId,
+          cumplimiento_general: 0,
+          empresa_id: empresaId
+        }]);
+        
+        agregados++;
       }
-      alert("Carga completada sin duplicados y con jerarquía armada. 🚀");
+
+      alert(`✅ Carga completada. Se agregaron ${agregados} nuevos colaboradores (se ignoraron los repetidos).`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       recargarDatos();
-    }; reader.readAsBinaryString(file);
+    }; 
+    reader.readAsBinaryString(file);
   };
 
   async function crearArea() {
@@ -470,12 +553,17 @@ async function confirmarInvitacionMasiva() {
             </button>
             
             {esAdmin && (
-               <>
-                 <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                 <button onClick={() => fileInputRef.current?.click()} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1">
-                   <span>📥</span> Excel
+               <div className="flex items-center gap-2">
+                 <button onClick={descargarPlantilla} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200">
+                   <span>⬇️</span> Plantilla
                  </button>
-               </>
+                 
+                 <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                 
+                 <button onClick={() => fileInputRef.current?.click()} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200">
+                   <span>⬆️</span> Subir Excel
+                 </button>
+               </div>
             )}
             
             <div className="flex items-center gap-3 border-l border-slate-200 pl-4 ml-2">
