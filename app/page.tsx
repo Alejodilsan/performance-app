@@ -6,7 +6,6 @@ import * as XLSX from 'xlsx'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 // --- TIPOS DE DATOS ---
-// FIX 11: potencial_score agregado a la interfaz Empleado
 interface Area { id: number; nombre: string; lider_id: number | null; parent_id: number | null; children?: Area[]; empleados?: Empleado[]; }
 interface Indicador { id: number; titulo: string; progreso: number; }
 interface Comentario { id: number; autor: string; texto: string; created_at: string; }
@@ -14,7 +13,6 @@ interface Plan { id: number; compromiso: string; estado: string; fecha_limite: s
 interface Evaluacion { id: number; evaluador_id: number; evaluado_id: number; tipo: string; puntuacion: number; feedback: string; created_at: string; }
 interface Empleado { id: number; nombre: string; puesto: string; email: string; cumplimiento_general: number; area_id: number | null; potencial_score?: 1 | 2 | 3; indicadores?: Indicador[]; planes_mejora?: Plan[]; }
 
-// FIX 9: Interfaz para perfil en lugar de any
 interface Perfil {
   id: string;
   nombre: string;
@@ -23,7 +21,6 @@ interface Perfil {
   empresa_id: number;
 }
 
-// FIX 9: Interfaz para las funciones de TarjetaEmpleado en lugar de any
 interface FuncionesTarjeta {
   asignarAreaEmpleado: (eid: number, aid: string) => Promise<void>;
   actualizarIndicador: (id: number, val: number, eid: number) => Promise<void>;
@@ -55,7 +52,6 @@ interface PropsTarjeta {
   funciones: FuncionesTarjeta;
 }
 
-// FIX 9: Interfaces para componentes de evaluación en lugar de any
 interface PropsVista360 {
   miDesempeno: Empleado | null;
   esLider: boolean;
@@ -81,10 +77,12 @@ export default function DashboardPerformance() {
   const [areas, setAreas] = useState<Area[]>([])
   const [evaluaciones, setEvaluaciones] = useState<Evaluacion[]>([])
   const [miDesempeno, setMiDesempeno] = useState<Empleado | null>(null)
-  // FIX 9: Tipo Perfil en lugar de any
   const [perfil, setPerfil] = useState<Perfil | null>(null)
   const [loading, setLoading] = useState(true)
-  const [invitando, setInvitando] = useState(false);
+  const [invitando, setInvitando] = useState(false)
+  // Estados para el Modal de Invitaciones Inteligentes
+  const [modalInvitarAbierto, setModalInvitarAbierto] = useState(false);
+  const [empleadosSeleccionadosParaInvitar, setEmpleadosSeleccionadosParaInvitar] = useState<number[]>([]);
   
   const [esLider, setEsLider] = useState(false)
   const [areaLiderada, setAreaLiderada] = useState<Area | null>(null)
@@ -94,16 +92,21 @@ export default function DashboardPerformance() {
   const [nombre, setNombre] = useState(''); const [puesto, setPuesto] = useState(''); const [emailEmpleado, setEmailEmpleado] = useState('');
   const [nuevaAreaNombre, setNuevaAreaNombre] = useState(''); const [nuevaAreaPadre, setNuevaAreaPadre] = useState<string>("");
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
-  // FIX 5: Estado indexado por empleado_id en lugar de string global
   const [nuevosIndicadores, setNuevosIndicadores] = useState<{ [key: number]: string }>({});
   const [textosPlanes, setTextosPlanes] = useState<{ [key: number]: string }>({}); const [diasPlanes, setDiasPlanes] = useState<{ [key: number]: number }>({});
   const [planChatAbierto, setPlanChatAbierto] = useState<number | null>(null);
-  // FIX 6: Estado indexado por plan_id en lugar de string global
   const [nuevosComentarios, setNuevosComentarios] = useState<{ [key: number]: string }>({});
   const [nombreEmpresa, setNombreEmpresa] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
+
+  // Controla qué áreas están desplegadas en el tablero
+const [areasAbiertas, setAreasAbiertas] = useState<{ [id: number]: boolean }>({});
+
+const toggleArea = (id: number) => {
+  setAreasAbiertas(prev => ({ ...prev, [id]: !prev[id] }));
+};
 
   useEffect(() => { verificarUsuario() }, [])
 
@@ -123,7 +126,6 @@ export default function DashboardPerformance() {
     const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
     setPerfil(perfilData)
     
-    // FIX 2: await agregado para que setLoading(false) espere los datos
     if (perfilData?.rol === 'admin') { 
       await obtenerDatosCorporativos(perfilData); 
     } else { 
@@ -146,7 +148,6 @@ export default function DashboardPerformance() {
     if (empData) {
       const dataOrdenada = empData.map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) }))
       setEmpleados(dataOrdenada)
-      // FIX 1: Usar perfilDeAcceso en lugar de perfil (que puede ser null por race condition)
       const miFicha = dataOrdenada.find((e: any) => e.email === perfilDeAcceso?.email);
       if (miFicha) setMiDesempeno(miFicha);
     }
@@ -160,9 +161,7 @@ export default function DashboardPerformance() {
     }
   }
 
-  // FIX 8: Queries filtradas por empresa_id del empleado
   async function identificarRolEmpleado(email: string) {
-    // Primero obtenemos el empleado para conocer su empresa_id
     const { data: miData } = await supabase
       .from('empleados')
       .select('*, indicadores(*), planes_mejora(*, comentarios(*))')
@@ -171,7 +170,6 @@ export default function DashboardPerformance() {
 
     if (!miData) return;
 
-    // Ahora filtramos por esa empresa
     const { data: areasData } = await supabase
       .from('areas')
       .select('*')
@@ -201,7 +199,6 @@ export default function DashboardPerformance() {
     reader.onload = async (evt) => {
       const wb = XLSX.read(evt.target?.result, { type: 'binary' }); const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
       let areasActivas = [...areas];
-      // FIX 3: Capturar empresa_id una sola vez antes del loop
       const empresaId = perfil?.empresa_id;
       for (const row of data) {
         const emailRow = row['Email'] || row['email'];
@@ -210,13 +207,11 @@ export default function DashboardPerformance() {
           if (reportaARow) {
             let padreExist = areasActivas.find(a => a.nombre.toLowerCase() === String(reportaARow).toLowerCase());
             if (padreExist) parentId = padreExist.id;
-            // FIX 3: empresa_id agregado al crear área "Reporta A"
             else { const { data: nP } = await supabase.from('areas').insert([{ nombre: reportaARow, empresa_id: empresaId }]).select().single(); if (nP) { parentId = nP.id; areasActivas.push(nP); } }
           }
           if (areaRow) {
             let aExist = areasActivas.find(a => a.nombre.toLowerCase() === String(areaRow).toLowerCase());
             if (aExist) { areaId = aExist.id; if (parentId && !aExist.parent_id) { await supabase.from('areas').update({ parent_id: parentId }).eq('id', areaId); aExist.parent_id = parentId; } }
-            // FIX 3: empresa_id agregado al crear área principal
             else { const { data: nA } = await supabase.from('areas').insert([{ nombre: areaRow, parent_id: parentId, empresa_id: empresaId }]).select().single(); if (nA) { areaId = nA.id; areasActivas.push(nA); } }
           }
           await supabase.from('empleados').insert([{
@@ -229,7 +224,6 @@ export default function DashboardPerformance() {
           }]);
         }
       }
-      // FIX 12: recargarDatos() en lugar de window.location.reload()
       alert("Carga completada sin duplicados y con jerarquía armada. 🚀");
       recargarDatos();
     }; reader.readAsBinaryString(file);
@@ -255,7 +249,6 @@ export default function DashboardPerformance() {
   async function asignarAreaEmpleado(eid: number, aid: string) { await supabase.from('empleados').update({ area_id: aid === "" ? null : parseInt(aid) }).eq('id', eid); recargarDatos(); }
   async function agregarEmpleado(e: React.FormEvent) { e.preventDefault(); await supabase.from('empleados').insert([{ nombre, puesto, email: emailEmpleado, cumplimiento_general: 0, empresa_id: perfil?.empresa_id }]); recargarDatos(); }
 
-  // FIX 5: Usa nuevosIndicadores[eid] en lugar del string global
   async function agregarIndicador(eid: number) {
     const texto = nuevosIndicadores[eid];
     if (!texto) return;
@@ -283,7 +276,6 @@ export default function DashboardPerformance() {
     await supabase.from('empleados').update({ cumplimiento_general: nuevoPromedioCalculado }).eq('id', eid);
   }
 
-  // FIX 11: actualizarPotencial optimizado — actualiza estado local sin recargar todo
   async function actualizarPotencial(eid: number, nuevoPotencial: number) {
     const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
     const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
@@ -296,7 +288,6 @@ export default function DashboardPerformance() {
   async function crearPlan(eid: number) { const txt = textosPlanes[eid]; if (!txt) return; const lim = new Date(); lim.setDate(lim.getDate() + (diasPlanes[eid] || 7)); await supabase.from('planes_mejora').insert([{ empleado_id: eid, compromiso: txt, created_at: new Date().toISOString(), fecha_limite: lim.toISOString(), estado: 'pendiente' }]); setTextosPlanes({ ...textosPlanes, [eid]: '' }); recargarDatos(); }
   async function completarPlan(pid: number, est: string) { await supabase.from('planes_mejora').update({ estado: est === 'pendiente' ? 'completado' : 'pendiente' }).eq('id', pid); recargarDatos(); }
 
-  // FIX 6: Usa nuevosComentarios[pid] en lugar del string global
   async function enviarComentario(pid: number) {
     const texto = nuevosComentarios[pid];
     if (!texto) return;
@@ -311,30 +302,65 @@ export default function DashboardPerformance() {
     alert("Evaluación enviada"); recargarDatos();
   }
 
-  async function invitarEquipo() {
-    const empleadosAInvitar = empleados.filter(emp => emp.email !== perfil?.email);
-    if (empleadosAInvitar.length === 0) { alert("No hay empleados nuevos para invitar."); return; }
-    const confirmacion = window.confirm(`¿Estás seguro de invitar a los ${empleadosAInvitar.length} empleados?`);
-    if (!confirmacion) return;
-    setInvitando(true);
-    try {
-      const res = await fetch('/api/invitar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empleados: empleadosAInvitar }) });
-      const data = await res.json();
-      alert(`¡Proceso terminado!\n${data.mensaje}`);
-    } catch (error) { alert("Error de conexión con el servidor."); }
-    setInvitando(false);
+  function abrirModalInvitacion() {
+  const candidatos = empleados.filter(emp => emp.email !== perfil?.email);
+  if (candidatos.length === 0) {
+    alert("No hay colaboradores en la plataforma para invitar.");
+    return;
+  }
+  setEmpleadosSeleccionadosParaInvitar(candidatos.map(e => e.id));
+  setModalInvitarAbierto(true);
+}
+
+  const invitarEquipo = abrirModalInvitacion;
+
+function toggleSeleccionInvitacion(id: number) {
+  setEmpleadosSeleccionadosParaInvitar(prev => 
+    prev.includes(id) ? prev.filter(eId => eId !== id) : [...prev, id]
+  );
+}
+
+function toggleSeleccionarTodos() {
+  const candidatos = empleados.filter(emp => emp.email !== perfil?.email);
+  // Si ya están todos seleccionados, los deseleccionamos (vaciamos el array)
+  if (empleadosSeleccionadosParaInvitar.length === candidatos.length) {
+    setEmpleadosSeleccionadosParaInvitar([]);
+  } else {
+    // Si no están todos, los seleccionamos a todos
+    setEmpleadosSeleccionadosParaInvitar(candidatos.map(e => e.id));
+  }
+}
+
+async function confirmarInvitacionMasiva() {
+  const empleadosAInvitar = empleados.filter(emp => empleadosSeleccionadosParaInvitar.includes(emp.id));
+  
+  if (empleadosAInvitar.length === 0) {
+    alert("Debes seleccionar al menos un colaborador.");
+    return;
   }
 
-  const descargarPlantilla = () => {
-    const encabezados = ["Nombre", "Email", "Puesto"];
-    const filaEjemplo = ["Juan Perez", "juan@empresa.com", "Analista de Datos"];
-    const contenidoCsv = [encabezados.join(","), filaEjemplo.join(",")].join("\n");
-    const blob = new Blob(["\ufeff" + contenidoCsv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url); link.setAttribute("download", "plantilla_carga_empleados.csv"); link.style.visibility = 'hidden';
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  };
+  setInvitando(true);
+  try {
+    const res = await fetch('/api/invitar', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify({ empleados: empleadosAInvitar }) 
+    });
+    
+    const data = await res.json();
+    
+    if (res.ok) {
+      alert(data.mensaje); 
+      setModalInvitarAbierto(false);
+      recargarDatos(); 
+    } else {
+      alert(`Error: ${data.mensaje}`);
+    }
+  } catch (error) { 
+    alert("Error de conexión con el servidor."); 
+  }
+  setInvitando(false);
+}
 
   const esAdmin = perfil?.rol === 'admin';
   const dataParaMetricas = esAdmin ? empleados : equipoLiderado;
@@ -370,389 +396,410 @@ export default function DashboardPerformance() {
   const miAreaInfo = areas.find(a => a.id === miDesempeno?.area_id);
   const miLider = empleados.find(e => e.id === miAreaInfo?.lider_id);
 
-  if (loading) return <div className="p-10 text-center text-slate-500 font-medium">Iniciando Plataforma Corporativa...</div>
-
-  // ==========================================
-  // VISTA 1: COLABORADOR INDIVIDUAL
-  // ==========================================
-  if (perfil?.rol !== 'admin' && !esLider) {
-    return (
-      <main className="min-h-screen bg-slate-50 p-8 flex flex-col items-center">
-        <div className="w-full max-w-2xl">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-slate-800">Hola, {perfil?.nombre} 👋</h1>
-            <div className="flex gap-4">
-              <BtnMenu active={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')}>Mi Rendimiento</BtnMenu>
-              <BtnMenu active={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')}>Evaluaciones 360</BtnMenu>
-              <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-red-500 text-sm font-medium hover:underline ml-4">Salir</button>
-            </div>
-          </div>
-          {vista === 'mi_perfil' && miDesempeno && (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4">
-              <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-blue-600">
-                <div className="flex justify-between items-end mb-4">
-                  <div><h3 className="text-4xl font-bold text-blue-600">{miDesempeno.cumplimiento_general}%</h3><p className="text-slate-500 font-medium">Rendimiento General</p></div>
-                  <div className="text-right text-sm text-slate-400"><p>{miDesempeno.puesto}</p><p>{miDesempeno.email}</p></div>
-                </div>
-                <div className="space-y-3">{miDesempeno.indicadores?.map(ind => (<div key={ind.id}><div className="flex justify-between text-sm mb-1 text-slate-600"><span>{ind.titulo}</span><span className="font-bold">{ind.progreso}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${ind.progreso}%` }}></div></div></div>))}</div>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">📈 Evolución y Compromisos</h3>
-                {miDesempeno.planes_mejora && miDesempeno.planes_mejora.length > 0 ? (
-                  <div className="space-y-4">
-                    {miDesempeno.planes_mejora.map(plan => {
-                      const gantt = calcularGantt(plan.created_at, plan.fecha_limite);
-                      return (
-                        <div key={plan.id} className={`p-4 rounded-lg border-l-4 ${plan.estado === 'completado' ? 'bg-green-50 border-green-500' : 'bg-white border-blue-500 shadow-sm'}`}>
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="font-medium text-sm text-slate-800">{plan.compromiso}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold ${plan.estado === 'completado' ? 'bg-green-200 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{plan.estado}</span>
-                          </div>
-                          <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
-                            <div className={`absolute top-0 left-0 h-full ${gantt.esVencido ? 'bg-red-400' : 'bg-blue-400'}`} style={{ width: `${gantt.porcentajeAvance}%` }}></div>
-                          </div>
-                          <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-medium">
-                            <span>Inicio: {gantt.fechaInicioStr}</span>
-                            <span className={gantt.esVencido ? 'text-red-500 font-bold' : ''}>{gantt.esVencido ? 'Vencido' : `Meta: ${gantt.fechaFinStr}`}</span>
-                          </div>
-                          <div className="mt-3 pt-2 border-t border-slate-100">
-                            <button onClick={() => setPlanChatAbierto(planChatAbierto === plan.id ? null : plan.id)} className="text-xs text-blue-600 font-medium flex items-center gap-1 hover:text-blue-800 transition-colors">💬 Ver Comentarios ({plan.comentarios?.length || 0})</button>
-                            {planChatAbierto === plan.id && (
-                              <div className="mt-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                                <div className="max-h-32 overflow-y-auto space-y-2 mb-3 custom-scrollbar">
-                                  {plan.comentarios?.map(c => <div key={c.id} className="text-xs bg-white p-2 rounded shadow-sm border border-slate-100"><span className="font-bold text-blue-800">{c.autor}: </span><span className="text-slate-700">{c.texto}</span></div>)}
-                                </div>
-                                {/* FIX 6: nuevosComentarios indexado por plan.id */}
-                                <div className="flex gap-2">
-                                  <input className="flex-1 text-xs border border-slate-300 rounded-md p-2 outline-none focus:border-blue-500 transition-colors" placeholder="Escribe tu respuesta..." value={nuevosComentarios[plan.id] || ''} onChange={e => setNuevosComentarios({ ...nuevosComentarios, [plan.id]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') enviarComentario(plan.id); }} />
-                                  <button onClick={() => enviarComentario(plan.id)} className="bg-blue-600 text-white px-3 rounded-md text-xs font-bold hover:bg-blue-700 transition-colors">Enviar</button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : <p className="text-slate-400 text-sm italic">No tienes planes activos.</p>}
-              </div>
-            </div>
-          )}
-          {vista === 'evaluaciones' && miDesempeno && (<VistaEvaluaciones360 miDesempeno={miDesempeno} esLider={esLider} equipo={equipoLiderado} miLider={miLider} evaluaciones={evaluaciones} onSave={guardarEvaluacion} />)}
-        </div>
-      </main>
-    )
-  }
-
-  // ==========================================
-  // VISTA 2 y 3: ADMIN Y LÍDER (MANAGER)
-  // ==========================================
-  const tituloPanel = esAdmin ? `🏢 Panel Corporativo ${nombreEmpresa ? '- ' + nombreEmpresa : ''}` : `⭐ Panel de Liderazgo: ${areaLiderada?.nombre}`;
+  if (loading) return <div className="p-10 text-center text-slate-500 font-medium w-full h-screen flex items-center justify-center bg-slate-50">Iniciando Plataforma Corporativa...</div>
 
   // Objeto de funciones tipado que se pasa a TarjetaEmpleado
   const funcionesTarjeta: FuncionesTarjeta = {
-    asignarAreaEmpleado,
-    actualizarIndicador,
-    actualizarPotencial,
-    agregarIndicador,
-    crearPlan,
-    completarPlan,
-    setExpandidoId,
-    expandidoId,
-    nuevosIndicadores,
-    setNuevosIndicadores,
-    textosPlanes,
-    setTextosPlanes,
-    diasPlanes,
-    setDiasPlanes,
-    calcularGantt,
-    planChatAbierto,
-    setPlanChatAbierto,
-    enviarComentario,
-    nuevosComentarios,
-    setNuevosComentarios,
+    asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador, crearPlan, completarPlan,
+    setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
+    diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
   };
 
+  // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
   return (
-    <main className="min-h-screen bg-slate-50 p-4 md:p-8">
-      <div className="max-w-[1400px] mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-5 rounded-xl shadow-sm border border-slate-200 gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">{tituloPanel}</h1>
-            <div className="flex gap-6 text-sm mt-3 border-b border-slate-200 pb-0 overflow-x-auto">
-              {esAdmin ? (
-                <>
-                  <BtnMenu active={vista === 'tablero'} onClick={() => setVista('tablero')}>Tablero de Control</BtnMenu>
-                  <BtnMenu active={vista === 'organigrama'} onClick={() => setVista('organigrama')}>Organigrama</BtnMenu>
-                  <BtnMenu active={vista === 'informes'} onClick={() => setVista('informes')}>📊 BI & Analítica</BtnMenu>
-                  <BtnMenu active={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')}>Evaluaciones 360</BtnMenu>
-                </>
-              ) : (
-                <>
-                  <BtnMenu active={vista === 'mi_equipo'} onClick={() => setVista('mi_equipo')}>Mi Equipo ({equipoLiderado.length})</BtnMenu>
-                  <BtnMenu active={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')}>Evaluaciones 360</BtnMenu>
-                  <BtnMenu active={vista === 'informes'} onClick={() => setVista('informes')}>📊 BI Team</BtnMenu>
-                  <BtnMenu active={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')}>Mi Rendimiento</BtnMenu>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <button onClick={invitarEquipo} disabled={invitando} className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-red-700 transition-colors disabled:bg-yellow-400">
-              {invitando ? '⏳ Enviando...' : '✉️ Invitar Equipo'}
-            </button>
-            {esAdmin && (
-              <>
-                <button onClick={descargarPlantilla} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold border border-slate-300 hover:bg-slate-200 transition-colors shadow-sm">Descargar Plantilla</button>
-                <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                <button onClick={() => fileInputRef.current?.click()} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-green-700 transition-colors">Cargar Excel</button>
-              </>
-            )}
-            <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-red-500 text-sm font-medium hover:text-red-700">Salir</button>
-          </div>
+    <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans">
+      
+      {/* ========================================== */}
+      {/* 1. MENÚ LATERAL IZQUIERDO (SIDEBAR)        */}
+      {/* ========================================== */}
+      <aside className="w-[260px] bg-white border-r border-slate-200 flex flex-col z-20 shadow-[2px_0_8px_-4px_rgba(0,0,0,0.1)] hidden md:flex shrink-0">
+        
+        {/* Logo de la Empresa */}
+        <div className="h-16 flex items-center px-6 border-b border-slate-100 shrink-0">
+          <h2 className="text-xl font-black text-[#FF4C4C] tracking-tighter flex items-center gap-2">
+            <span className="bg-[#FF4C4C] text-white w-6 h-6 rounded flex items-center justify-center text-xs">t</span>
+            {nombreEmpresa || "toteat HR"}
+          </h2>
         </div>
 
-        {esAdmin && vista === 'tablero' && (
-          <div className="space-y-8 animate-in fade-in">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-3 items-end">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Nueva Área</label>
-                <input className="border border-slate-400 p-2 rounded-md text-sm bg-white text-slate-900 placeholder-slate-500 w-64 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600" placeholder="Ej: Ventas..." value={nuevaAreaNombre} onChange={e => setNuevaAreaNombre(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-slate-500 uppercase">Jerarquía</label>
-                <select className="border border-slate-300 p-2 rounded-md text-sm bg-slate-50 w-64 outline-none focus:border-blue-500" value={nuevaAreaPadre} onChange={e => setNuevaAreaPadre(e.target.value)}>
-                  <option value="">-- Área Principal --</option>
-                  {areas.map(a => <option key={a.id} value={a.id}>Dentro de: {a.nombre}</option>)}
-                </select>
-              </div>
-              <button onClick={crearArea} className="bg-slate-800 text-white px-6 py-2 rounded-md text-sm font-bold shadow-sm hover:bg-slate-900 transition-colors h-[38px]">Crear</button>
-            </div>
-            <div className="space-y-12">
-              {areas.map(area => {
-                const miembrosArea = empleados.filter(e => e.area_id === area.id);
-                return (
-                  <div key={area.id} className="scroll-mt-6">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-slate-200 pb-3 bg-white p-4 rounded-xl shadow-sm border">
-                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3"><span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-md text-sm shadow-sm border border-blue-200">Área</span> {area.nombre}</h2>
-                      <div className="flex gap-6 items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-slate-500 font-bold uppercase mb-1">Líder</span>
-                          <select className="bg-white border border-slate-300 rounded-md text-sm py-1.5 px-2 outline-none focus:border-blue-500 w-48 shadow-sm" value={area.lider_id || ""} onChange={(e) => asignarLiderArea(area.id, e.target.value)}>
-                            <option value="">-- Sin Asignar --</option>
-                            {empleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                          </select>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-slate-500 font-bold uppercase mb-1">Reporta a</span>
-                          <select className="bg-white border border-slate-300 rounded-md text-sm py-1.5 px-2 outline-none focus:border-blue-500 w-48 shadow-sm" value={area.parent_id || ""} onChange={(e) => asignarPadreArea(area.id, e.target.value)}>
-                            <option value="">(Principal)</option>
-                            {areas.filter(a => a.id !== area.id).map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                      {miembrosArea.map(emp => <TarjetaEmpleado key={emp.id} emp={emp} esLider={area.lider_id === emp.id} areas={areas} allowEdit={true} funciones={funcionesTarjeta} />)}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="fixed bottom-8 right-8 bg-white p-3 rounded-full shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3)] flex gap-2 border border-slate-200 z-50">
-              <form onSubmit={agregarEmpleado} className="flex gap-2">
-                <input className="bg-slate-50 border border-slate-200 rounded-full px-4 text-sm w-36 outline-none focus:border-blue-500" placeholder="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} required />
-                <input className="bg-slate-50 border border-slate-200 rounded-full px-4 text-sm w-48 outline-none focus:border-blue-500" placeholder="Email" value={emailEmpleado} onChange={e => setEmailEmpleado(e.target.value)} required />
-                <button className="bg-blue-600 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg hover:bg-blue-700">+</button>
-              </form>
+        {/* Links de Navegación */}
+        <div className="flex-1 overflow-y-auto py-5 px-4 space-y-6 custom-scrollbar">
+          
+          <div>
+            <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Mi Espacio</p>
+            <div className="space-y-1">
+              <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={esAdmin} />
+              <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={!esAdmin} />
+              <BotonLateral icono="👥" texto="Mi Equipo" activo={vista === 'mi_equipo'} onClick={() => setVista('mi_equipo')} visible={esLider && !esAdmin} />
+              <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={esAdmin} />
             </div>
           </div>
-        )}
 
-        {!esAdmin && vista === 'mi_equipo' && (
-          <div className="animate-in fade-in">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {equipoLiderado.map(emp => (
-                <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={true} funciones={{ ...funcionesTarjeta, asignarAreaEmpleado: async () => {} }} />
-              ))}
+          <div>
+            <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Talento</p>
+            <div className="space-y-1">
+              <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={esAdmin || esLider} />
+              <BotonLateral icono="⭐" texto="Evaluaciones 360" activo={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')} visible={true} />
             </div>
           </div>
-        )}
+          
+        </div>
+      </aside>
 
-        {esAdmin && vista === 'organigrama' && (<div className="bg-slate-100 p-8 rounded-xl overflow-x-auto overflow-y-auto h-[750px] flex justify-center items-start animate-in zoom-in-95 border border-slate-200 shadow-inner custom-scrollbar relative"><div className="absolute top-4 left-4 text-slate-300 font-bold text-2xl tracking-widest opacity-50 select-none">ESTRUCTURA ORGANIZACIONAL</div><div className="flex gap-16 pb-32 pt-10">{construirArbol(areas, empleados).map(areaRaiz => (<NodoOrganigrama key={areaRaiz.id} area={areaRaiz} />))}</div></div>)}
+      {/* ========================================== */}
+      {/* 2. ÁREA CENTRAL (HEADER + CONTENIDO)       */}
+      {/* ========================================== */}
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        
+        {/* HEADER SUPERIOR */}
+        <header className="h-16 bg-white flex items-center justify-between px-6 border-b border-slate-200 z-10 shrink-0 shadow-sm">
+          <h1 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <span className="text-slate-500 font-medium">Página de inicio</span>
+            {vista !== 'tablero' && <span className="text-slate-300">/</span>}
+            {vista !== 'tablero' && <span className="text-[#FF4C4C] capitalize">{vista.replace('_', ' ')}</span>}
+          </h1>
+          
+          <div className="flex items-center gap-4">
+            {/* Buscador ficticio para igualar diseño */}
+            <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm text-slate-400">
+               <span className="mr-2">🔍</span> Buscar...
+            </div>
 
-        {vista === 'evaluaciones' && (esAdmin ? (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in">
-            <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800">📋 Reporte Global de Evaluaciones 360</h3></div>
-            <div className="p-6 grid gap-4">
-              {evaluaciones.length === 0 ? <p className="text-slate-400">Nadie ha enviado evaluaciones aún.</p> : evaluaciones.map(ev => {
-                const evaluador = empleados.find(e => e.id === ev.evaluador_id)?.nombre;
-                const evaluado = empleados.find(e => e.id === ev.evaluado_id)?.nombre;
-                return (
-                  <div key={ev.id} className="p-4 border border-slate-100 bg-slate-50 rounded-lg flex items-start gap-4">
-                    <div className="text-2xl pt-1">{'⭐'.repeat(ev.puntuacion)}</div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{evaluador} <span className="text-slate-400 font-normal">evaluó a</span> {evaluado}</p>
-                      <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">{ev.tipo}</span>
-                      <p className="text-sm text-slate-600 mt-2 italic">"{ev.feedback}"</p>
-                    </div>
-                  </div>
-                )
-              })}
+            <button onClick={abrirModalInvitacion} disabled={invitando} className="bg-[#FF4C4C] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2">
+              <span>✨</span> {invitando ? 'Enviando...' : 'Invitar Equipo'}
+            </button>
+            
+            {esAdmin && (
+               <>
+                 <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                 <button onClick={() => fileInputRef.current?.click()} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1">
+                   <span>📥</span> Excel
+                 </button>
+               </>
+            )}
+            
+            <div className="flex items-center gap-3 border-l border-slate-200 pl-4 ml-2">
+              <div className="hidden md:block text-right">
+                <p className="text-xs font-bold text-slate-700 leading-tight">{perfil?.nombre}</p>
+                <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-[10px] text-slate-400 hover:text-red-500 hover:underline leading-tight transition-colors">Cerrar Sesión</button>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold shadow-sm border border-blue-200">
+                {perfil?.nombre?.charAt(0).toUpperCase() || 'U'}
+              </div>
             </div>
           </div>
-        ) : (<VistaEvaluaciones360 miDesempeno={miDesempeno} esLider={esLider} equipo={equipoLiderado} miLider={miLider} evaluaciones={evaluaciones} onSave={guardarEvaluacion} />))}
+        </header>
 
-        {vista === 'informes' && (
-          <div className="animate-in slide-in-from-bottom-4 space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-5 rounded-xl shadow-md text-white">
-                <p className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-1">Rendimiento</p>
-                <h3 className="text-4xl font-black">{metricasBI.prom}%</h3>
-              </div>
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Headcount</p>
-                <h3 className="text-3xl font-black text-slate-800">{metricasBI.total}</h3>
-              </div>
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Planes Abiertos</p>
-                <h3 className="text-3xl font-black text-amber-500">{metricasBI.pendientes}</h3>
-              </div>
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Logros (Done)</p>
-                <h3 className="text-3xl font-black text-emerald-500">{metricasBI.completados}</h3>
-              </div>
-              <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-5 rounded-xl shadow-md text-white">
-                <p className="text-indigo-100 text-xs font-bold uppercase tracking-wider mb-1">Clima (Eval 360)</p>
-                <h3 className="text-4xl font-black flex items-center gap-2">{metricasBI.promEvals} <span className="text-lg">⭐</span></h3>
-              </div>
-            </div>
+        {/* CONTENIDO PRINCIPAL (El que hace Scroll) */}
+        <main className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar relative">
+          <div className="max-w-[1200px] mx-auto">
 
-            {/* FIX 7: dataParaMetricas en lugar de empleados — funciona para líderes también */}
-            <MatrizNineBox empleados={dataParaMetricas} />
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {esAdmin && (
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2">📊 Performance Index por Área</h3>
-                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded font-medium">Mayor a Menor</span>
+            {/* --- CONTENIDO: TABLERO ADMIN --- */}
+            {esAdmin && vista === 'tablero' && (
+              <div className="animate-in fade-in space-y-8">
+                
+                {/* Panel superior de Creación (Estilo Tarjeta Blanca Limpia) */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-4 items-end">
+                  <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nueva Área</label>
+                    <input className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-sm text-slate-900 placeholder-slate-400 outline-none focus:border-[#FF4C4C] focus:ring-1 focus:ring-[#FF4C4C] transition-all" placeholder="Ej: Operaciones..." value={nuevaAreaNombre} onChange={e => setNuevaAreaNombre(e.target.value)} />
                   </div>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={metricasBI.datosArea} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                        <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                        <Bar dataKey="promedio" radius={[4, 4, 0, 0]} barSize={35}>
-                          {metricasBI.datosArea.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.promedio >= 80 ? '#10b981' : entry.promedio >= 60 ? '#3b82f6' : '#ef4444'} />))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Jerarquía</label>
+                    <select className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-sm text-slate-700 outline-none focus:border-[#FF4C4C] transition-all" value={nuevaAreaPadre} onChange={e => setNuevaAreaPadre(e.target.value)}>
+                      <option value="">-- Área Principal --</option>
+                      {areas.map(a => <option key={a.id} value={a.id}>Dentro de: {a.nombre}</option>)}
+                    </select>
                   </div>
+                  <button onClick={crearArea} className="bg-slate-800 text-white px-8 py-2.5 rounded-lg text-sm font-bold shadow-sm hover:bg-slate-900 transition-colors h-[42px]">Crear Área</button>
                 </div>
-              )}
-              <div className={`bg-white p-6 rounded-xl shadow-sm border border-slate-200 ${!esAdmin ? 'lg:col-span-3' : ''}`}>
-                <h3 className="font-bold text-slate-800 mb-2">🎯 9-Box (Distribución Talentos)</h3>
-                <p className="text-xs text-slate-500 mb-4">Mapeo de la organización según rendimiento general.</p>
-                <div className="h-56 flex justify-center">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={metricasBI.distribucion} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({ name, percent }: any) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                        {metricasBI.distribucion.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                      </Pie>
-                      <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: 'bold', color: '#333' }} />
-                      <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+
+                {/* Lista de Áreas con Health Cards */}
+                <div className="space-y-6">
+                  {areas.map(area => {
+                    const miembrosArea = empleados.filter(e => e.area_id === area.id);
+                    return (
+                      <TarjetaSaludArea
+                        key={area.id}
+                        area={area}
+                        empleadosArea={miembrosArea}
+                        todosLosEmpleados={empleados}
+                        todasLasAreas={areas}
+                        estaAbierta={!!areasAbiertas[area.id]}
+                        onToggle={() => toggleArea(area.id)}
+                        funcionesTarjeta={funcionesTarjeta}
+                        asignarLiderArea={asignarLiderArea}
+                        asignarPadreArea={asignarPadreArea}
+                        calcularGantt={calcularGantt}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Botón Flotante para Agregar Empleado Manual */}
+                <div className="fixed bottom-8 right-8 bg-white p-3 rounded-full shadow-[0_10px_25px_-5px_rgba(0,0,0,0.2)] flex gap-2 border border-slate-100 z-50">
+                  <form onSubmit={agregarEmpleado} className="flex gap-2">
+                    <input className="bg-slate-50 border border-slate-200 rounded-full px-4 text-sm w-36 outline-none focus:border-[#FF4C4C]" placeholder="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} required />
+                    <input className="bg-slate-50 border border-slate-200 rounded-full px-4 text-sm w-48 outline-none focus:border-[#FF4C4C]" placeholder="Email" value={emailEmpleado} onChange={e => setEmailEmpleado(e.target.value)} required />
+                    <button className="bg-[#FF4C4C] text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg hover:bg-red-600 transition shadow-sm">+</button>
+                  </form>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">🌟 Top 5 Talentos</h3>
-                <div className="space-y-4">
-                  {metricasBI.top5.map((emp, i) => (
-                    <div key={emp.id} className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">{i + 1}</div>
-                      <div className="flex-1">
-                        <div className="flex justify-between">
-                          <p className="text-xs font-bold text-slate-700 truncate w-32">{emp.nombre}</p>
-                          <p className="text-xs font-black text-emerald-600">{emp.cumplimiento_general}%</p>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1 mt-1"><div className="bg-emerald-500 h-1 rounded-full" style={{ width: `${emp.cumplimiento_general}%` }}></div></div>
-                      </div>
-                    </div>
+            {/* --- CONTENIDO: MI EQUIPO (Líder) --- */}
+            {!esAdmin && vista === 'mi_equipo' && (
+              <div className="animate-in fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {equipoLiderado.map(emp => (
+                    <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={true} funciones={{ ...funcionesTarjeta, asignarAreaEmpleado: async () => {} }} />
                   ))}
                 </div>
               </div>
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">⚠️ Alertas de Fuga</h3>
-                <div className="space-y-4">
-                  {metricasBI.bottom5.length > 0 ? metricasBI.bottom5.map((emp, i) => (
-                    <div key={emp.id} className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center font-bold text-xs">!</div>
-                      <div className="flex-1">
-                        <div className="flex justify-between">
-                          <p className="text-xs font-bold text-slate-700 truncate w-32">{emp.nombre}</p>
-                          <p className="text-xs font-black text-red-600">{emp.cumplimiento_general}%</p>
+            )}
+
+            {/* --- CONTENIDO: ORGANIGRAMA --- */}
+            {esAdmin && vista === 'organigrama' && (
+              <div className="bg-slate-100 p-8 rounded-2xl overflow-x-auto overflow-y-auto h-[750px] flex justify-center items-start animate-in zoom-in-95 border border-slate-200 shadow-inner custom-scrollbar relative">
+                <div className="absolute top-4 left-4 text-slate-300 font-bold text-2xl tracking-widest opacity-50 select-none">ESTRUCTURA ORGANIZACIONAL</div>
+                <div className="flex gap-16 pb-32 pt-10">
+                  {construirArbol(areas, empleados).map(areaRaiz => (<NodoOrganigrama key={areaRaiz.id} area={areaRaiz} />))}
+                </div>
+              </div>
+            )}
+
+            {/* --- CONTENIDO: EVALUACIONES 360 --- */}
+            {vista === 'evaluaciones' && (esAdmin ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
+                <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800">📋 Reporte Global de Evaluaciones 360</h3></div>
+                <div className="p-6 grid gap-4">
+                  {evaluaciones.length === 0 ? <p className="text-slate-400">Nadie ha enviado evaluaciones aún.</p> : evaluaciones.map(ev => {
+                    const evaluador = empleados.find(e => e.id === ev.evaluador_id)?.nombre;
+                    const evaluado = empleados.find(e => e.id === ev.evaluado_id)?.nombre;
+                    return (
+                      <div key={ev.id} className="p-4 border border-slate-100 bg-slate-50 rounded-xl flex items-start gap-4">
+                        <div className="text-2xl pt-1">{'⭐'.repeat(ev.puntuacion)}</div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{evaluador} <span className="text-slate-400 font-normal">evaluó a</span> {evaluado}</p>
+                          <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">{ev.tipo}</span>
+                          <p className="text-sm text-slate-600 mt-2 italic">"{ev.feedback}"</p>
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-1 mt-1"><div className="bg-red-500 h-1 rounded-full" style={{ width: `${emp.cumplimiento_general}%` }}></div></div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (<VistaEvaluaciones360 miDesempeno={miDesempeno} esLider={esLider} equipo={equipoLiderado} miLider={miLider} evaluaciones={evaluaciones} onSave={guardarEvaluacion} />))}
+
+            {/* --- CONTENIDO: INFORMES (BI) --- */}
+            {vista === 'informes' && (
+              <div className="animate-in slide-in-from-bottom-4 space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-2xl shadow-sm text-white border border-slate-700">
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Rendimiento</p>
+                    <h3 className="text-4xl font-black">{metricasBI.prom}%</h3>
+                  </div>
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Headcount</p>
+                    <h3 className="text-3xl font-black text-slate-800">{metricasBI.total}</h3>
+                  </div>
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Planes Abiertos</p>
+                    <h3 className="text-3xl font-black text-amber-500">{metricasBI.pendientes}</h3>
+                  </div>
+                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Logros (Done)</p>
+                    <h3 className="text-3xl font-black text-emerald-500">{metricasBI.completados}</h3>
+                  </div>
+                  <div className="bg-gradient-to-br from-[#FF4C4C] to-red-600 p-5 rounded-2xl shadow-sm text-white">
+                    <p className="text-red-100 text-xs font-bold uppercase tracking-wider mb-1">Clima (Eval)</p>
+                    <h3 className="text-4xl font-black flex items-center gap-2">{metricasBI.promEvals} <span className="text-lg">⭐</span></h3>
+                  </div>
+                </div>
+
+                <MatrizNineBox empleados={dataParaMetricas} />
+
+                {/* Graficos (BarChart y PieChart) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {esAdmin && (
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
+                      <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">📊 Performance Index por Área</h3>
+                        <span className="text-xs bg-slate-50 border border-slate-200 text-slate-500 px-2 py-1 rounded font-medium">Mayor a Menor</span>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={metricasBI.datosArea} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                            <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                            <Bar dataKey="promedio" radius={[6, 6, 0, 0]} barSize={35}>
+                              {metricasBI.datosArea.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.promedio >= 80 ? '#10b981' : entry.promedio >= 60 ? '#3b82f6' : '#FF4C4C'} />))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
                     </div>
-                  )) : <p className="text-xs text-slate-400 italic">No hay personal en riesgo crítico.</p>}
+                  )}
+                  <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 ${!esAdmin ? 'lg:col-span-3' : ''}`}>
+                    <h3 className="font-bold text-slate-800 mb-2">🎯 Distribución Talentos</h3>
+                    <p className="text-xs text-slate-500 mb-4">Mapeo de la organización según rendimiento general.</p>
+                    <div className="h-56 flex justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={metricasBI.distribucion} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({ name, percent }: any) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                            {metricasBI.distribucion.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
+                          </Pie>
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: 'bold', color: '#333' }} />
+                          <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-800 mb-1">🔄 Participación 360</h3>
-                  <p className="text-xs text-slate-500 mb-4">Total de feedbacks emitidos: <strong className="text-indigo-600">{metricasBI.totalEvals}</strong></p>
-                </div>
-                <div className="flex-1 flex items-center justify-center min-h-[150px]">
-                  {metricasBI.totalEvals > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={metricasBI.evalsPorTipo} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={2} dataKey="value">
-                          {metricasBI.evalsPorTipo.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}
-                        </Pie>
-                        <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-                        <Legend verticalAlign="bottom" height={20} iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (<p className="text-xs text-slate-400 italic text-center">Inicia las evaluaciones para ver la data cruzada.</p>)}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {!esAdmin && vista === 'mi_perfil' && miDesempeno && (
-          <div className="max-w-3xl mx-auto bg-white p-10 rounded-2xl shadow-xl border-t-8 border-purple-600 animate-in fade-in zoom-in-95">
-            <h2 className="text-3xl font-black text-slate-800 mb-2">Mi Rendimiento</h2>
-            <div className="flex justify-between items-center mb-10 bg-purple-50 p-6 rounded-xl border border-purple-100">
-              <div><h3 className="text-6xl font-black text-purple-600">{miDesempeno.cumplimiento_general}%</h3></div>
-              <div className="text-right"><p className="text-lg font-bold text-slate-800">{miDesempeno.nombre}</p><p className="text-slate-500 font-medium">{miDesempeno.puesto}</p></div>
-            </div>
-            <div className="space-y-5">
-              {miDesempeno.indicadores?.map(ind => (<div key={ind.id} className="bg-slate-50 p-4 rounded-lg border border-slate-100"><div className="flex justify-between text-sm mb-2"><span className="font-semibold text-slate-700">{ind.titulo}</span><span className="font-black text-purple-600">{ind.progreso}%</span></div><div className="h-2.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-purple-400 to-purple-600 rounded-full" style={{ width: `${ind.progreso}%` }}></div></div></div>))}
-            </div>
+            {/* --- CONTENIDO: MI PERFIL (Empleado sin equipo) --- */}
+            {!esAdmin && vista === 'mi_perfil' && miDesempeno && (
+              <div className="max-w-3xl mx-auto bg-white p-10 rounded-3xl shadow-sm border border-slate-100 border-t-4 border-t-[#FF4C4C] animate-in fade-in zoom-in-95 mt-4">
+                <h2 className="text-3xl font-black text-slate-800 mb-2">Mi Rendimiento</h2>
+                <div className="flex justify-between items-center mb-10 bg-[#FFF5F5] p-6 rounded-2xl border border-[#FFEAEA]">
+                  <div><h3 className="text-6xl font-black text-[#FF4C4C]">{miDesempeno.cumplimiento_general}%</h3></div>
+                  <div className="text-right"><p className="text-lg font-bold text-slate-800">{miDesempeno.nombre}</p><p className="text-slate-500 font-medium">{miDesempeno.puesto}</p></div>
+                </div>
+                <div className="space-y-5">
+                  {miDesempeno.indicadores?.map(ind => (<div key={ind.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm"><div className="flex justify-between text-sm mb-2"><span className="font-semibold text-slate-700">{ind.titulo}</span><span className="font-black text-slate-800">{ind.progreso}%</span></div><div className="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-[#FF4C4C] to-red-600 rounded-full" style={{ width: `${ind.progreso}%` }}></div></div></div>))}
+                </div>
+              </div>
+            )}
+            {/* MODAL DE INVITACIONES INTELIGENTES */}
+{modalInvitarAbierto && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 border border-slate-100">
+      
+     {/* Header del Modal */}
+      <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 shrink-0">
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Invitar Colaboradores</h2>
+            <p className="text-xs text-slate-500 mt-1">Selecciona quiénes recibirán acceso a la plataforma.</p>
           </div>
-        )}
+          <button 
+            onClick={() => setModalInvitarAbierto(false)}
+            className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold hover:bg-slate-300 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+        
+        {/* Nuevo control de Selección Masiva */}
+        <button 
+          onClick={toggleSeleccionarTodos}
+          className="text-xs font-bold text-[#FF4C4C] hover:underline"
+        >
+          {empleadosSeleccionadosParaInvitar.length === empleados.filter(e => e.email !== perfil?.email).length 
+            ? 'Deseleccionar todos' 
+            : 'Seleccionar todos'
+          }
+        </button>
       </div>
-    </main>
+
+      {/* Lista scrolleable de empleados */}
+      <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+        <div className="space-y-3">
+          {empleados.filter(e => e.email !== perfil?.email).map(emp => {
+            const seleccionado = empleadosSeleccionadosParaInvitar.includes(emp.id);
+            return (
+              <label 
+                key={emp.id} 
+                className={`flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all ${
+                  seleccionado ? 'bg-red-50/50 border-[#FF4C4C]/40 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="shrink-0 ml-1">
+                  <input 
+                    type="checkbox" 
+                    checked={seleccionado}
+                    onChange={() => toggleSeleccionInvitacion(emp.id)}
+                    className="w-4 h-4 rounded border-slate-300 text-[#FF4C4C] focus:ring-[#FF4C4C] accent-[#FF4C4C] cursor-pointer"
+                  />
+                </div>
+                <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm shrink-0">
+                  {emp.nombre.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-slate-800 truncate">{emp.nombre}</p>
+                  <p className="text-xs text-slate-500 truncate">{emp.email} • {emp.puesto}</p>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer del Modal con botón de confirmación */}
+      <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
+        <span className="text-sm font-bold text-slate-600">
+          <span className="text-[#FF4C4C]">{empleadosSeleccionadosParaInvitar.length}</span> seleccionados
+        </span>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setModalInvitarAbierto(false)}
+            className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button 
+            onClick={confirmarInvitacionMasiva}
+            disabled={invitando || empleadosSeleccionadosParaInvitar.length === 0}
+            className="bg-[#FF4C4C] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {invitando ? 'Procesando...' : `Invitar (${empleadosSeleccionadosParaInvitar.length})`}
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+)}
+
+          </div>
+        </main>
+      </div>
+    </div>
   )
 }
 
-// --- SUBVISTAS Y COMPONENTES AUXILIARES ---
+// ==========================================
+// COMPONENTES AUXILIARES
+// ==========================================
 
-// FIX 9: Props tipadas en lugar de any
+// Botón Lateral del Menú
+function BotonLateral({ icono, texto, activo, onClick, visible = true }: { icono: string, texto: string, activo: boolean, onClick: () => void, visible?: boolean }) {
+  if (!visible) return null;
+  return (
+    <button 
+      onClick={onClick} 
+      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+        activo 
+          ? 'bg-[#FFF0F0] text-[#FF4C4C] font-bold shadow-sm' 
+          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+      }`}
+    >
+      <span className="text-lg w-6 text-center">{icono}</span>
+      <span>{texto}</span>
+    </button>
+  );
+}
+
+// Vista de Evaluaciones (Se mantiene igual pero con clases más suaves)
 function VistaEvaluaciones360({ miDesempeno, esLider, equipo, miLider, evaluaciones, onSave }: PropsVista360) {
   if (!miDesempeno) return null;
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 w-full">
-      <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-xl text-sm text-indigo-900 shadow-sm flex items-center gap-3">
+      <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-2xl text-sm text-indigo-900 shadow-sm flex items-center gap-3">
         <span className="text-2xl">🔄</span><p><strong>Evaluación 360°:</strong> Refleja tu desempeño y el de tu entorno para crecer juntos. Sé sincero y constructivo.</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -761,7 +808,7 @@ function VistaEvaluaciones360({ miDesempeno, esLider, equipo, miLider, evaluacio
       </div>
       {esLider && equipo.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-xl font-bold text-slate-800 mb-4 border-b pb-2">Evaluación de mi Equipo (Descendente)</h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2">Evaluación de mi Equipo (Descendente)</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {equipo.map((miembro) => (<FormEvaluacion key={miembro.id} evaluado={miembro} tipo="descendente" titulo={`Evaluar a ${miembro.nombre}`} descripcion={miembro.puesto} miId={miDesempeno.id} evaluaciones={evaluaciones} onSave={onSave} colorTheme="emerald" />))}
           </div>
@@ -771,184 +818,538 @@ function VistaEvaluaciones360({ miDesempeno, esLider, equipo, miLider, evaluacio
   )
 }
 
-// FIX 9: Props tipadas en lugar de any
 function FormEvaluacion({ evaluado, tipo, titulo, descripcion, miId, evaluaciones, onSave, colorTheme }: PropsFormEval) {
   const yaEvaluado = evaluaciones.find((e) => e.evaluador_id === miId && e.evaluado_id === evaluado.id && e.tipo === tipo);
   const [puntuacion, setPuntuacion] = useState(0); const [feedback, setFeedback] = useState("");
-  const bgMap: Record<string, string> = { purple: 'bg-purple-50 border-purple-200', blue: 'bg-blue-50 border-blue-200', emerald: 'bg-emerald-50 border-emerald-200' };
+  const bgMap: Record<string, string> = { purple: 'bg-purple-50 border-purple-100', blue: 'bg-blue-50 border-blue-100', emerald: 'bg-emerald-50 border-emerald-100' };
   const textMap: Record<string, string> = { purple: 'text-purple-800', blue: 'text-blue-800', emerald: 'text-emerald-800' };
   if (yaEvaluado) {
-    return (<div className={`p-6 rounded-xl border opacity-70 ${bgMap[colorTheme]}`}><h4 className={`font-bold mb-1 ${textMap[colorTheme]}`}>✅ {titulo} completada</h4><div className="text-2xl tracking-widest my-2">{'⭐'.repeat(yaEvaluado.puntuacion)}</div><p className="text-xs text-slate-600 italic">"{yaEvaluado.feedback}"</p></div>)
+    return (<div className={`p-6 rounded-2xl border opacity-80 ${bgMap[colorTheme]}`}><h4 className={`font-bold mb-1 ${textMap[colorTheme]}`}>✅ {titulo} completada</h4><div className="text-2xl tracking-widest my-2">{'⭐'.repeat(yaEvaluado.puntuacion)}</div><p className="text-xs text-slate-600 italic">"{yaEvaluado.feedback}"</p></div>)
   }
   return (
-    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
       <h4 className="font-bold text-slate-800 mb-1">{titulo}</h4><p className="text-xs text-slate-500 mb-4">{descripcion}</p>
-      <div className="mb-4"><p className="text-[10px] font-bold uppercase text-slate-400 mb-2">Puntuación (1 a 5)</p><div className="flex gap-2">{[1, 2, 3, 4, 5].map(num => (<button key={num} onClick={() => setPuntuacion(num)} className={`w-8 h-8 rounded-full font-bold text-sm transition-colors ${puntuacion >= num ? 'bg-amber-400 text-white shadow-inner' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>★</button>))}</div></div>
-      <textarea className="w-full text-xs border border-slate-300 rounded-md p-3 outline-none focus:border-blue-500 mb-3 resize-none h-20" placeholder="Escribe tu retroalimentación detallada y constructiva..." value={feedback} onChange={e => setFeedback(e.target.value)}></textarea>
-      <button onClick={() => onSave(evaluado.id, tipo, puntuacion, feedback)} className={`w-full text-white font-bold py-2 rounded-md text-sm transition-colors ${puntuacion > 0 && feedback ? 'bg-slate-800 hover:bg-slate-900' : 'bg-slate-300 cursor-not-allowed'}`}>Enviar Evaluación</button>
+      <div className="mb-4"><p className="text-[10px] font-bold uppercase text-slate-400 mb-2">Puntuación (1 a 5)</p><div className="flex gap-2">{[1, 2, 3, 4, 5].map(num => (<button key={num} onClick={() => setPuntuacion(num)} className={`w-8 h-8 rounded-full font-bold text-sm transition-colors ${puntuacion >= num ? 'bg-amber-400 text-white shadow-inner' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 border border-slate-200'}`}>★</button>))}</div></div>
+      <textarea className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 outline-none focus:border-slate-400 mb-3 resize-none h-20" placeholder="Escribe tu retroalimentación detallada y constructiva..." value={feedback} onChange={e => setFeedback(e.target.value)}></textarea>
+      <button onClick={() => onSave(evaluado.id, tipo, puntuacion, feedback)} className={`w-full text-white font-bold py-2 rounded-lg text-sm transition-colors ${puntuacion > 0 && feedback ? 'bg-slate-800 hover:bg-slate-900' : 'bg-slate-300 cursor-not-allowed'}`}>Enviar Evaluación</button>
     </div>
   )
 }
 
-function BtnMenu({ children, active, onClick }: { children: React.ReactNode; active: boolean; onClick: () => void }) {
-  return <button onClick={onClick} className={`font-bold px-1 py-3 whitespace-nowrap transition-colors ${active ? 'text-blue-600 border-b-[3px] border-blue-600' : 'text-slate-400 hover:text-slate-600 hover:border-b-[3px] hover:border-slate-300'}`}>{children}</button>
+function construirArbol(areas: Area[], empleados: Empleado[]) { const areaMap = new Map(); areas.forEach(a => areaMap.set(a.id, { ...a, children: [], empleados: [] })); empleados.forEach(e => { if (e.area_id && areaMap.has(e.area_id)) areaMap.get(e.area_id).empleados.push(e); }); const raiz: Area[] = []; areaMap.forEach(area => { if (area.parent_id && areaMap.has(area.parent_id)) areaMap.get(area.parent_id).children.push(area); else raiz.push(area); }); return raiz; }
+function NodoOrganigrama({ area }: { area: Area }) { return (<div className="flex flex-col items-center"><div className="relative flex flex-col w-56 bg-white rounded-xl shadow-md border border-slate-100 transition-transform hover:-translate-y-1 hover:shadow-xl z-10">{area.lider_id && (<div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 text-[10px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1 border border-white whitespace-nowrap z-20">👑 Lider Asignado</div>)}<div className="bg-slate-800 text-white p-3 rounded-t-xl text-center border-b-4 border-[#FF4C4C]"><h3 className="font-bold text-sm tracking-wide truncate px-2" title={area.nombre}>{area.nombre}</h3></div><div className="p-2 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar bg-slate-50 rounded-b-xl">{area.empleados && area.empleados.length > 0 ? (area.empleados.map(emp => (<div key={emp.id} className="text-xs text-slate-700 bg-white p-2 rounded-lg border border-slate-100 flex justify-between items-center shadow-sm hover:border-blue-200 transition-colors"><span className="truncate w-32 font-medium" title={emp.nombre}>{emp.nombre}</span><span className={`font-bold text-[10px] px-2 py-0.5 rounded-full ${emp.cumplimiento_general < 70 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{emp.cumplimiento_general}%</span></div>))) : (<div className="text-[10px] text-slate-400 text-center py-3 italic">Sin asignaciones</div>)}</div></div>{area.children && area.children.length > 0 && (<><div className="w-[2px] h-8 bg-slate-200"></div><div className="flex justify-center">{area.children.map((hijo, index) => { const isFirst = index === 0; const isLast = index === area.children!.length - 1; const isOnly = area.children!.length === 1; return (<div key={hijo.id} className="relative flex flex-col items-center pt-8 px-2 md:px-4">{!isOnly && (<div className={`absolute top-0 h-[2px] bg-slate-200 ${isFirst ? 'left-1/2 right-0' : ''} ${isLast ? 'left-0 right-1/2' : ''} ${!isFirst && !isLast ? 'left-0 right-0' : ''} `}></div>)}<div className="absolute top-0 w-[2px] h-8 bg-slate-200 left-1/2 -translate-x-1/2"></div><NodoOrganigrama area={hijo} /></div>) })}</div></>)}</div>) }
+interface PropsTarjetaSaludArea {
+  area: Area;
+  empleadosArea: Empleado[];
+  todosLosEmpleados: Empleado[];
+  todasLasAreas: Area[];
+  estaAbierta: boolean;
+  onToggle: () => void;
+  funcionesTarjeta: FuncionesTarjeta;
+  asignarLiderArea: (aid: number, lid: string) => Promise<void>;
+  asignarPadreArea: (aid: number, pid: string) => Promise<void>;
+  calcularGantt: (creado: string, limite: string) => any;
 }
 
-// FIX 10: CardKpi eliminado (componente muerto, nunca se usaba)
+function TarjetaSaludArea({
+  area,
+  empleadosArea,
+  todosLosEmpleados,
+  todasLasAreas,
+  estaAbierta,
+  onToggle,
+  funcionesTarjeta,
+  asignarLiderArea,
+  asignarPadreArea,
+  calcularGantt,
+}: PropsTarjetaSaludArea) {
+  const total = empleadosArea.length;
+  const promedio = total > 0
+    ? Math.round(empleadosArea.reduce((acc, curr) => acc + curr.cumplimiento_general, 0) / total)
+    : 0;
 
-function construirArbol(areas: Area[], empleados: Empleado[]) { const areaMap = new Map(); areas.forEach(a => areaMap.set(a.id, { ...a, children: [], empleados: [] })); empleados.forEach(e => { if (e.area_id && areaMap.has(e.area_id)) areaMap.get(e.area_id).empleados.push(e); }); const raiz: Area[] = []; areaMap.forEach(area => { if (area.parent_id && areaMap.has(area.parent_id)) areaMap.get(area.parent_id).children.push(area); else raiz.push(area); }); return raiz; }
-function NodoOrganigrama({ area }: { area: Area }) { return (<div className="flex flex-col items-center"><div className="relative flex flex-col w-56 bg-white rounded-xl shadow-md border border-slate-200 transition-transform hover:-translate-y-1 hover:shadow-xl z-10">{area.lider_id && (<div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 text-[10px] font-bold px-3 py-1 rounded-full shadow-sm flex items-center gap-1 border border-white whitespace-nowrap z-20">👑 Lider Asignado</div>)}<div className="bg-gradient-to-r from-slate-800 to-slate-700 text-white p-3 rounded-t-xl text-center border-b-4 border-blue-500"><h3 className="font-bold text-sm tracking-wide truncate px-2" title={area.nombre}>{area.nombre}</h3></div><div className="p-2 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar bg-slate-50 rounded-b-xl">{area.empleados && area.empleados.length > 0 ? (area.empleados.map(emp => (<div key={emp.id} className="text-xs text-slate-700 bg-white p-2 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm hover:border-blue-300 transition-colors"><span className="truncate w-32 font-medium" title={emp.nombre}>{emp.nombre}</span><span className={`font-bold text-[10px] px-2 py-0.5 rounded-full ${emp.cumplimiento_general < 70 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{emp.cumplimiento_general}%</span></div>))) : (<div className="text-[10px] text-slate-400 text-center py-3 italic">Sin asignaciones</div>)}</div></div>{area.children && area.children.length > 0 && (<><div className="w-[2px] h-8 bg-slate-300"></div><div className="flex justify-center">{area.children.map((hijo, index) => { const isFirst = index === 0; const isLast = index === area.children!.length - 1; const isOnly = area.children!.length === 1; return (<div key={hijo.id} className="relative flex flex-col items-center pt-8 px-2 md:px-4">{!isOnly && (<div className={`absolute top-0 h-[2px] bg-slate-300 ${isFirst ? 'left-1/2 right-0' : ''} ${isLast ? 'left-0 right-1/2' : ''} ${!isFirst && !isLast ? 'left-0 right-0' : ''} `}></div>)}<div className="absolute top-0 w-[2px] h-8 bg-slate-300 left-1/2 -translate-x-1/2"></div><NodoOrganigrama area={hijo} /></div>) })}</div></>)}</div>) }
+  // Métricas estratégicas de RRHH
+  const enRiesgo = empleadosArea.filter(e => e.cumplimiento_general < 60).length;
+  const estandar = empleadosArea.filter(e => e.cumplimiento_general >= 60 && e.cumplimiento_general < 85).length;
+  const topPerformers = empleadosArea.filter(e => e.cumplimiento_general >= 85).length;
 
-// FIX 9: Props tipadas en lugar de any
-function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTarjeta) {
-  const { asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador, crearPlan, completarPlan, setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios } = funciones;
+  const todosLosPlanes = empleadosArea.flatMap(e => e.planes_mejora || []);
+  const planesPendientes = todosLosPlanes.filter(p => p.estado !== 'completado').length;
+  const planesVencidos = todosLosPlanes.filter(
+    p => p.estado !== 'completado' && calcularGantt(p.created_at, p.fecha_limite).esVencido
+  ).length;
+
+  // Semáforo de Salud Organizacional
+  let estadoSalud = { label: '🟢 Saludable', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (total === 0) {
+    estadoSalud = { label: '⚪ Sin Equipo', badgeClass: 'bg-slate-100 text-slate-500 border-slate-200' };
+  } else if (promedio < 60 || planesVencidos >= 3) {
+    estadoSalud = { label: '🔴 Riesgo Crítico', badgeClass: 'bg-red-50 text-red-700 border-red-200' };
+  } else if (promedio < 80 || planesVencidos > 0 || enRiesgo > 0) {
+    estadoSalud = { label: '🟡 En Observación', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' };
+  }
+
+  const liderActual = todosLosEmpleados.find(e => e.id === area.lider_id);
 
   return (
-    <div className={`bg-white rounded-xl shadow-sm border p-6 transition-all duration-300 hover:shadow-md ${esLider ? 'border-blue-400 ring-2 ring-blue-400 shadow-blue-100' : 'border-slate-200'}`}>
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-            {emp.nombre}
-            {esLider && <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-black tracking-widest border border-blue-200">LÍDER</span>}
-          </h3>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">{emp.puesto}</p>
-
-          {allowEdit && (
-            <select className="mt-2 text-[10px] bg-slate-50 border border-slate-200 rounded-md py-1 px-2 text-slate-600 outline-none focus:border-blue-400 w-full" value={emp.area_id || ""} onChange={(e) => asignarAreaEmpleado(emp.id, e.target.value)}>
-              <option value="">-- Reasignar Área --</option>
-              {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-            </select>
-          )}
-
-          {allowEdit && (
-            <div className="mt-3 pt-3 border-t border-slate-100">
-              <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold block mb-1">Potencial (Nine-Box)</label>
-              {/* FIX 4: value controlado + llama actualizarPotencial del padre en lugar de supabase directo */}
-              <select
-                value={emp.potencial_score || 1}
-                onChange={(e) => actualizarPotencial(emp.id, parseInt(e.target.value))}
-                className="w-full p-2 text-xs bg-white border border-slate-300 rounded-md text-slate-700 outline-none focus:border-blue-500 shadow-sm"
-              >
-                <option value="1">🌱 Bajo (1)</option>
-                <option value="2">🚀 Medio (2)</option>
-                <option value="3">⭐ Alto (3)</option>
-              </select>
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md">
+      {/* 1. CABECERA EJECUTIVA DEL ÁREA */}
+      <div className="p-5 md:p-6 bg-white">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          
+          {/* Identidad del Área & Líder */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">{area.nombre}</h2>
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${estadoSalud.badgeClass}`}>
+                {estadoSalud.label}
+              </span>
             </div>
-          )}
-        </div>
+            <p className="text-xs text-slate-500 flex items-center gap-2">
+              <span>👑 Líder: <strong className="text-slate-700">{liderActual ? liderActual.nombre : 'Sin asignar'}</strong></span>
+              <span>•</span>
+              <span>👥 Headcount: <strong className="text-slate-700">{total} colaboradores</strong></span>
+            </p>
+          </div>
 
-        <div className="flex flex-col items-end">
-          <span className={`text-3xl font-black transition-all duration-500 ${emp.cumplimiento_general < 70 ? 'text-red-500' : 'text-blue-600'}`}>{emp.cumplimiento_general}%</span>
-          <span className="text-[9px] text-slate-400 uppercase font-bold mt-1">Score</span>
-        </div>
-      </div>
+          {/* Score Promedio y Barra de Rendimiento */}
+          <div className="flex items-center gap-5 shrink-0 bg-slate-50/70 p-3 px-4 rounded-xl border border-slate-100">
+            <div className="w-36">
+              <div className="flex justify-between items-center text-[11px] font-bold mb-1">
+                <span className="text-slate-500 uppercase tracking-wider">Cumplimiento</span>
+                <span className={promedio >= 80 ? 'text-emerald-600' : promedio >= 60 ? 'text-blue-600' : 'text-[#FF4C4C]'}>
+                  {promedio}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${
+                    promedio >= 80 ? 'bg-emerald-500' : promedio >= 60 ? 'bg-blue-500' : 'bg-[#FF4C4C]'
+                  }`}
+                  style={{ width: `${promedio}%` }}
+                />
+              </div>
+            </div>
 
-      <div className="w-full bg-slate-100 rounded-full h-2 mb-5 overflow-hidden">
-        <div className={`h-2 rounded-full transition-all duration-1000 ${emp.cumplimiento_general < 70 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${emp.cumplimiento_general}%` }}></div>
-      </div>
-
-      {emp.planes_mejora && emp.planes_mejora.length > 0 && (
-        <div className="mt-5 pt-4 border-t border-slate-100 bg-slate-50 -mx-6 px-6 pb-2">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">🚀 Action Plans</p>
-          <div className="space-y-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
-            {emp.planes_mejora.filter((p) => allowEdit ? true : p.estado !== 'completado').map((plan) => {
-              const gantt = calcularGantt(plan.created_at, plan.fecha_limite);
-              return (
-                <div key={plan.id} className="relative bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className={`text-xs font-semibold w-[60%] truncate ${plan.estado === 'completado' ? 'text-slate-400 line-through' : 'text-slate-700'}`} title={plan.compromiso}>{plan.compromiso}</span>
-                    <div className="flex gap-1.5">
-                      <button onClick={() => setPlanChatAbierto(planChatAbierto === plan.id ? null : plan.id)} className={`text-[10px] px-2 py-1 rounded-md font-bold transition-colors ${plan.comentarios && plan.comentarios.length > 0 ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>💬 {plan.comentarios?.length || 0}</button>
-                      {allowEdit && (<button onClick={() => completarPlan(plan.id, plan.estado)} className={`text-[10px] px-2 py-1 rounded-md font-black border transition-colors ${plan.estado === 'completado' ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-white text-slate-400 border-slate-200 hover:bg-green-50 hover:text-green-600 hover:border-green-300'}`}>{plan.estado === 'completado' ? 'UNDO' : '✔ OK'}</button>)}
-                    </div>
-                  </div>
-                  {plan.estado !== 'completado' && (
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative mt-1.5 mb-1">
-                      <div className={`absolute top-0 left-0 h-full transition-all duration-1000 ${gantt.esVencido ? 'bg-red-500' : 'bg-amber-400'}`} style={{ width: `${gantt.porcentajeAvance}%` }}></div>
-                    </div>
-                  )}
-                  <div className="flex justify-between px-1 text-[8px] font-bold text-slate-400 uppercase mt-1">
-                    <span>{gantt.fechaInicioStr}</span>
-                    <span className={gantt.esVencido && plan.estado !== 'completado' ? 'text-red-500' : ''}>{plan.estado === 'completado' ? 'Completado' : (gantt.esVencido ? 'Vencido' : gantt.fechaFinStr)}</span>
-                  </div>
-                  {planChatAbierto === plan.id && (
-                    <div className="mt-3 bg-slate-50 p-2 rounded-lg border border-slate-200 animate-in slide-in-from-top-2">
-                      <div className="max-h-32 overflow-y-auto space-y-2 mb-2 custom-scrollbar">
-                        {plan.comentarios?.map((c) => (
-                          <div key={c.id} className="text-[10px] bg-white p-2 rounded shadow-sm border border-slate-100">
-                            <span className="font-black text-blue-800">{c.autor}: </span><span className="text-slate-600">{c.texto}</span>
-                          </div>
-                        ))}
-                        {(!plan.comentarios || plan.comentarios.length === 0) && <p className="text-[10px] text-slate-400 italic text-center py-2">No hay comentarios aún.</p>}
-                      </div>
-                      {/* FIX 6: nuevosComentarios indexado por plan.id */}
-                      <div className="flex gap-1.5">
-                        <input className="flex-1 text-[10px] border border-slate-300 rounded-md p-1.5 outline-none focus:border-blue-400" placeholder="Añadir comentario..." value={nuevosComentarios[plan.id] || ''} onChange={e => setNuevosComentarios({ ...nuevosComentarios, [plan.id]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') enviarComentario(plan.id) }} />
-                        <button onClick={() => enviarComentario(plan.id)} className="bg-blue-600 text-white px-3 rounded-md text-[10px] font-bold hover:bg-blue-700">Enviar</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            <div className="text-right pl-3 border-l border-slate-200">
+              <span className="text-2xl font-black text-slate-800">{promedio}%</span>
+              <span className="block text-[9px] uppercase font-bold text-slate-400">Promedio</span>
+            </div>
           </div>
         </div>
-      )}
 
-      {allowEdit && emp.cumplimiento_general < 70 && (
-        <div className="mt-4 flex gap-2">
-          <input className="flex-1 text-xs border border-red-200 bg-red-50 p-2 rounded-md text-red-800 outline-none focus:ring-1 focus:ring-red-400 placeholder:text-red-300" placeholder="Asignar compromiso..." value={textosPlanes[emp.id] || ''} onChange={e => setTextosPlanes({ ...textosPlanes, [emp.id]: e.target.value })} />
-          <select className="text-xs border border-red-200 bg-red-50 text-red-800 rounded-md outline-none" value={diasPlanes[emp.id] || 7} onChange={e => setDiasPlanes({ ...diasPlanes, [emp.id]: parseInt(e.target.value) })}>
-            <option value={3}>3d</option><option value={7}>7d</option><option value={15}>15d</option>
-          </select>
-          <button onClick={() => crearPlan(emp.id)} className="bg-red-500 text-white px-3 rounded-md font-black hover:bg-red-600 transition-colors">+</button>
+        {/* 2. FRANJA ESTRATÉGICA (DISPERSIÓN Y COMPROMISOS) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-100 text-xs">
+          
+          <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Top Talent (≥85%)</span>
+            <span className="text-sm font-black text-emerald-600">{topPerformers}</span>
+            <span className="text-[10px] text-slate-400 ml-1">colaboradores</span>
+          </div>
+
+          <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Estándar (60-84%)</span>
+            <span className="text-sm font-black text-slate-700">{estandar}</span>
+            <span className="text-[10px] text-slate-400 ml-1">colaboradores</span>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border ${enRiesgo > 0 ? 'bg-red-50/80 border-red-100' : 'bg-slate-50/80 border-slate-100'}`}>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">En Riesgo (&lt;60%)</span>
+            <span className={`text-sm font-black ${enRiesgo > 0 ? 'text-[#FF4C4C]' : 'text-slate-700'}`}>{enRiesgo}</span>
+            <span className="text-[10px] text-slate-400 ml-1">en alerta</span>
+          </div>
+
+          <div className={`p-2.5 rounded-xl border ${planesVencidos > 0 ? 'bg-red-50/80 border-red-100' : 'bg-slate-50/80 border-slate-100'}`}>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Compromisos</span>
+            <span className="text-sm font-black text-slate-800">{planesPendientes}</span>
+            <span className="text-[10px] text-slate-400 ml-1">
+              {planesVencidos > 0 ? `(${planesVencidos} vencidos ⚠️)` : 'activos'}
+            </span>
+          </div>
+
         </div>
-      )}
 
-      <button onClick={() => setExpandidoId(expandidoId === emp.id ? null : emp.id)} className={`mt-4 w-full text-center text-[10px] py-2 rounded-md transition-colors font-bold uppercase tracking-widest ${expandidoId === emp.id ? 'bg-slate-100 text-slate-500' : 'text-blue-500 bg-blue-50 hover:bg-blue-100'}`}>
-        {expandidoId === emp.id ? '▲ Ocultar KPIs' : '▼ Gestionar KPIs'}
-      </button>
-
-      {expandidoId === emp.id && (
-        <div className="mt-2 pt-4 border-t border-slate-200 bg-slate-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-xl">
-          {emp.indicadores?.map((ind) => (
-            <div key={ind.id} className="mb-4">
-              <div className="flex justify-between text-xs mb-1.5 font-semibold text-slate-700">
-                <span>{ind.titulo}</span>
-                <span className={ind.progreso < 70 ? 'text-red-500' : 'text-blue-600'}>{ind.progreso}%</span>
-              </div>
-              {allowEdit ? (
-                <input type="range" className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" value={ind.progreso} onChange={(e) => actualizarIndicador(ind.id, parseInt(e.target.value), emp.id)} />
-              ) : (
-                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${ind.progreso}%` }}></div></div>
-              )}
+        {/* 3. CONFIGURACIÓN RÁPIDA (LÍDER & REPORTE) + BOTÓN EXPANDIR */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-100">
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Líder:</span>
+              <select
+                className="bg-slate-50 border border-slate-200 rounded-lg text-xs py-1 px-2 text-slate-700 outline-none focus:border-slate-400"
+                value={area.lider_id || ""}
+                onChange={(e) => asignarLiderArea(area.id, e.target.value)}
+              >
+                <option value="">-- Sin Asignar --</option>
+                {todosLosEmpleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
             </div>
-          ))}
 
-          {allowEdit && (
-            <div className="flex gap-2 mt-5 pt-4 border-t border-slate-200">
-              {/* FIX 5: nuevosIndicadores indexado por emp.id */}
-              <input className="flex-1 p-2 text-xs border border-slate-300 rounded-md outline-none focus:border-slate-500" placeholder="Nombre del nuevo KPI..." value={nuevosIndicadores[emp.id] || ''} onChange={e => setNuevosIndicadores({ ...nuevosIndicadores, [emp.id]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') agregarIndicador(emp.id); }} />
-              <button onClick={() => agregarIndicador(emp.id)} className="bg-slate-800 text-white px-4 rounded-md text-xs font-bold hover:bg-slate-900 transition-colors">Añadir</button>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Depende de:</span>
+              <select
+                className="bg-slate-50 border border-slate-200 rounded-lg text-xs py-1 px-2 text-slate-700 outline-none focus:border-slate-400"
+                value={area.parent_id || ""}
+                onChange={(e) => asignarPadreArea(area.id, e.target.value)}
+              >
+                <option value="">(Principal)</option>
+                {todasLasAreas.filter(a => a.id !== area.id).map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
+              </select>
             </div>
+          </div>
+
+          <button
+            onClick={onToggle}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+              estaAbierta
+                ? 'bg-slate-900 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <span>{estaAbierta ? 'Ocultar Colaboradores' : `Ver ${total} Colaboradores`}</span>
+            <span className="text-[10px]">{estaAbierta ? '▲' : '▼'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 4. LISTA DE COLABORADORES (SOLO VISIBLE SI SE EXPANDE) */}
+      {estaAbierta && (
+        <div className="p-5 md:p-6 bg-slate-50/50 border-t border-slate-200/80 animate-in slide-in-from-top-2">
+          {empleadosArea.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {empleadosArea.map(emp => (
+                <TarjetaEmpleado
+                  key={emp.id}
+                  emp={emp}
+                  esLider={area.lider_id === emp.id}
+                  areas={todasLasAreas}
+                  allowEdit={true}
+                  funciones={funcionesTarjeta}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-xs text-slate-400 italic py-6">
+              No hay colaboradores asignados a esta área todavía.
+            </p>
           )}
         </div>
       )}
     </div>
   );
 }
+function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTarjeta) {
+  const {
+    asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador,
+    crearPlan, completarPlan, setExpandidoId, expandidoId, nuevosIndicadores,
+    setNuevosIndicadores, textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes,
+    calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario,
+    nuevosComentarios, setNuevosComentarios
+  } = funciones;
+
+  const estaExpandido = expandidoId === emp.id;
+  const planesActivos = emp.planes_mejora?.filter(p => p.estado !== 'completado') || [];
+  const planesVencidos = planesActivos.filter(p => calcularGantt(p.created_at, p.fecha_limite).esVencido);
+  const colorDesempeno = emp.cumplimiento_general >= 85 ? 'text-emerald-600' : emp.cumplimiento_general >= 70 ? 'text-blue-600' : 'text-[#FF4C4C]';
+  const barBg = emp.cumplimiento_general >= 85 ? 'bg-emerald-500' : emp.cumplimiento_general >= 70 ? 'bg-blue-600' : 'bg-[#FF4C4C]';
+
+  return (
+    <div className={`bg-white rounded-2xl border transition-all duration-200 hover:shadow-lg ${
+      esLider ? 'border-amber-200/80 shadow-amber-50/50' : 'border-slate-100'
+    } shadow-sm overflow-hidden flex flex-col justify-between`}>
+      
+      {/* 1. VISTA ESTRATÉGICA (SIEMPRE VISIBLE) */}
+      <div className="p-5">
+        
+        {/* Cabecera: Avatar, Nombre, Rol y Score */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shrink-0 ${
+              esLider ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {emp.nombre.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-900 text-base truncate" title={emp.nombre}>
+                  {emp.nombre}
+                </h3>
+                {esLider && (
+                  <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/60 font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
+                    Líder
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 truncate font-medium">{emp.puesto}</p>
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            <span className={`text-2xl font-black tracking-tight leading-none ${colorDesempeno}`}>
+              {emp.cumplimiento_general}%
+            </span>
+            <span className="block text-[9px] uppercase font-bold text-slate-400 mt-0.5">Score</span>
+          </div>
+        </div>
+
+        {/* Barra de Progreso Minimalista */}
+        <div className="w-full bg-slate-100 rounded-full h-1.5 mb-4 overflow-hidden">
+          <div className={`h-1.5 rounded-full transition-all duration-700 ${barBg}`} style={{ width: `${emp.cumplimiento_general}%` }}></div>
+        </div>
+
+        {/* Chips de Diagnóstico Rápido */}
+        <div className="flex items-center justify-between gap-2 pt-1 text-xs">
+          {/* Potencial Nine-Box en Badge Discreto */}
+          {allowEdit ? (
+            <div className="relative inline-block">
+              <select
+                value={emp.potencial_score || 1}
+                onChange={(e) => actualizarPotencial(emp.id, parseInt(e.target.value))}
+                className="bg-slate-50 border border-slate-200/80 rounded-lg text-[11px] font-semibold text-slate-700 py-1 px-2 pr-6 outline-none focus:border-slate-400 cursor-pointer appearance-none transition-colors"
+              >
+                <option value="1">🌱 Potencial Bajo</option>
+                <option value="2">🚀 Potencial Medio</option>
+                <option value="3">⭐ Potencial Alto</option>
+              </select>
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400">▼</span>
+            </div>
+          ) : (
+            <span className="bg-slate-50 text-slate-600 border border-slate-200/60 text-[11px] font-semibold px-2.5 py-1 rounded-lg">
+              {emp.potencial_score === 3 ? '⭐ Alto Potencial' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
+            </span>
+          )}
+
+          {/* Estado de Acciones */}
+          <div className="flex items-center gap-1.5">
+            {planesVencidos.length > 0 ? (
+              <span className="text-[11px] bg-red-50 text-red-600 border border-red-100 font-bold px-2 py-0.5 rounded-lg flex items-center gap-1">
+                <span>⚠️</span> {planesVencidos.length} Vencido{planesVencidos.length > 1 ? 's' : ''}
+              </span>
+            ) : planesActivos.length > 0 ? (
+              <span className="text-[11px] bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-lg">
+                🚀 {planesActivos.length} Plan{planesActivos.length > 1 ? 'es' : ''}
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-400 font-medium">
+                Sin alertas
+              </span>
+            )}
+
+            <span className="text-[11px] bg-slate-50 text-slate-500 font-medium px-2 py-0.5 rounded-lg border border-slate-100">
+              📊 {emp.indicadores?.length || 0} KPIs
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      {/* 2. BOTÓN DE APERTURA OPERATIVA */}
+      <div className="border-t border-slate-100 bg-slate-50/50">
+        <button
+          onClick={() => setExpandidoId(estaExpandido ? null : emp.id)}
+          className={`w-full py-2.5 text-center text-[11px] font-bold tracking-wider uppercase transition-colors flex items-center justify-center gap-2 ${
+            estaExpandido
+              ? 'text-slate-600 bg-slate-100'
+              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/60'
+          }`}
+        >
+          <span>{estaExpandido ? 'Cerrar detalle' : 'Gestionar KPIs y Planes'}</span>
+          <span className="text-[9px]">{estaExpandido ? '▲' : '▼'}</span>
+        </button>
+      </div>
+
+      {/* 3. VISTA OPERATIVA DETALLADA (SOLO AL DESPLEGAR) */}
+      {estaExpandido && (
+        <div className="border-t border-slate-200/80 bg-slate-50/70 p-5 space-y-5 animate-in slide-in-from-top-2">
+          
+          {/* Reasignar Área */}
+          {allowEdit && (
+            <div>
+              <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Mover de Área</label>
+              <select
+                className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 text-slate-700 outline-none focus:border-slate-400 shadow-sm"
+                value={emp.area_id || ""}
+                onChange={(e) => asignarAreaEmpleado(emp.id, e.target.value)}
+              >
+                <option value="">-- Sin Área Asignada --</option>
+                {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Sección de Indicadores (KPIs) */}
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Indicadores Clave</span>
+              <span className="text-[10px] text-slate-400 font-bold">{emp.indicadores?.length || 0} activos</span>
+            </div>
+
+            <div className="space-y-3">
+              {emp.indicadores?.map((ind) => (
+                <div key={ind.id} className="bg-white p-3 rounded-xl border border-slate-200/70 shadow-sm">
+                  <div className="flex justify-between text-xs mb-1.5 font-semibold text-slate-700">
+                    <span className="truncate pr-2">{ind.titulo}</span>
+                    <span className={ind.progreso < 70 ? 'text-[#FF4C4C] font-black' : 'text-slate-800 font-black'}>
+                      {ind.progreso}%
+                    </span>
+                  </div>
+                  {allowEdit ? (
+                    <input
+                      type="range"
+                      className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800"
+                      value={ind.progreso}
+                      onChange={(e) => actualizarIndicador(ind.id, parseInt(e.target.value), emp.id)}
+                    />
+                  ) : (
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-slate-800 rounded-full" style={{ width: `${ind.progreso}%` }}></div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {allowEdit && (
+              <div className="flex gap-2 mt-3">
+                <input
+                  className="flex-1 p-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-slate-400"
+                  placeholder="Nuevo KPI..."
+                  value={nuevosIndicadores[emp.id] || ''}
+                  onChange={e => setNuevosIndicadores({ ...nuevosIndicadores, [emp.id]: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Enter') agregarIndicador(emp.id); }}
+                />
+                <button
+                  onClick={() => agregarIndicador(emp.id)}
+                  className="bg-slate-800 text-white px-3 rounded-lg text-xs font-bold hover:bg-slate-900 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Sección de Action Plans */}
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-2">Planes de Mejora</span>
+            
+            {emp.planes_mejora && emp.planes_mejora.length > 0 ? (
+              <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                {emp.planes_mejora.map((plan) => {
+                  const gantt = calcularGantt(plan.created_at, plan.fecha_limite);
+                  return (
+                    <div key={plan.id} className="bg-white p-3 rounded-xl border border-slate-200/70 shadow-sm">
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className={`text-xs font-semibold truncate w-[60%] ${plan.estado === 'completado' ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                          {plan.compromiso}
+                        </span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setPlanChatAbierto(planChatAbierto === plan.id ? null : plan.id)}
+                            className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                          >
+                            💬 {plan.comentarios?.length || 0}
+                          </button>
+                          {allowEdit && (
+                            <button
+                              onClick={() => completarPlan(plan.id, plan.estado)}
+                              className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors ${
+                                plan.estado === 'completado' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+                              }`}
+                            >
+                              {plan.estado === 'completado' ? 'Listo' : 'OK'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between text-[9px] font-semibold text-slate-400">
+                        <span>Inicio: {gantt.fechaInicioStr}</span>
+                        <span className={gantt.esVencido && plan.estado !== 'completado' ? 'text-red-500 font-bold' : ''}>
+                          {plan.estado === 'completado' ? 'Completado' : (gantt.esVencido ? 'Vencido' : `Meta: ${gantt.fechaFinStr}`)}
+                        </span>
+                      </div>
+
+                      {/* Chat de comentarios */}
+                      {planChatAbierto === plan.id && (
+                        <div className="mt-2.5 pt-2 border-t border-slate-100">
+                          <div className="max-h-24 overflow-y-auto space-y-1.5 mb-2 custom-scrollbar">
+                            {plan.comentarios?.map(c => (
+                              <div key={c.id} className="text-[10px] bg-slate-50 p-1.5 rounded border border-slate-100">
+                                <strong className="text-slate-700">{c.autor}: </strong>
+                                <span className="text-slate-600">{c.texto}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <input
+                              className="flex-1 text-[10px] border border-slate-200 rounded p-1.5 outline-none"
+                              placeholder="Comentario..."
+                              value={nuevosComentarios[plan.id] || ''}
+                              onChange={e => setNuevosComentarios({ ...nuevosComentarios, [plan.id]: e.target.value })}
+                              onKeyDown={e => { if (e.key === 'Enter') enviarComentario(plan.id); }}
+                            />
+                            <button
+                              onClick={() => enviarComentario(plan.id)}
+                              className="bg-slate-800 text-white px-2.5 rounded text-[10px] font-bold"
+                            >
+                              Enviar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic mb-2">Sin compromisos asignados.</p>
+            )}
+
+            {/* Asignar nuevo compromiso */}
+            {allowEdit && (
+              <div className="mt-3 flex gap-1.5">
+                <input
+                  className="flex-1 text-xs border border-slate-200 bg-white p-2 rounded-lg outline-none focus:border-slate-400"
+                  placeholder="Asignar compromiso..."
+                  value={textosPlanes[emp.id] || ''}
+                  onChange={e => setTextosPlanes({ ...textosPlanes, [emp.id]: e.target.value })}
+                />
+                <select
+                  className="text-xs border border-slate-200 bg-white text-slate-700 rounded-lg px-2 outline-none"
+                  value={diasPlanes[emp.id] || 7}
+                  onChange={e => setDiasPlanes({ ...diasPlanes, [emp.id]: parseInt(e.target.value) })}
+                >
+                  <option value={3}>3d</option>
+                  <option value={7}>7d</option>
+                  <option value={15}>15d</option>
+                </select>
+                <button
+                  onClick={() => crearPlan(emp.id)}
+                  className="bg-slate-800 text-white px-3 rounded-lg font-bold hover:bg-slate-900 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+
+    </div>
+  );
+}
 
 function MatrizNineBox({ empleados }: { empleados: Empleado[] }) {
   const cuadrantes = [
-    { id: '3-1', titulo: 'Enigma', desc: 'Alto Potencial / Bajo Desempeño', color: 'bg-orange-100 border-orange-300' },
-    { id: '3-2', titulo: 'Futura Estrella', desc: 'Alto Potencial / Medio Desempeño', color: 'bg-blue-100 border-blue-300' },
-    { id: '3-3', titulo: 'Estrella', desc: 'Alto Potencial / Alto Desempeño', color: 'bg-green-200 border-green-400 shadow-inner' },
-    { id: '2-1', titulo: 'Dilema', desc: 'Medio Potencial / Bajo Desempeño', color: 'bg-red-100 border-red-300' },
-    { id: '2-2', titulo: 'Jugador Clave', desc: 'Medio Potencial / Medio Desempeño', color: 'bg-slate-100 border-slate-300' },
-    { id: '2-3', titulo: 'Alto Impacto', desc: 'Medio Potencial / Alto Desempeño', color: 'bg-blue-100 border-blue-300' },
-    { id: '1-1', titulo: 'Riesgo', desc: 'Bajo Potencial / Bajo Desempeño', color: 'bg-red-200 border-red-400 shadow-inner' },
-    { id: '1-2', titulo: 'Efectivo', desc: 'Bajo Potencial / Medio Desempeño', color: 'bg-orange-100 border-orange-300' },
-    { id: '1-3', titulo: 'Especialista', desc: 'Bajo Potencial / Alto Desempeño', color: 'bg-slate-100 border-slate-300' },
+    { id: '3-1', titulo: 'Enigma', desc: 'Alto Potencial / Bajo Desempeño', color: 'bg-orange-50 border-orange-200' },
+    { id: '3-2', titulo: 'Futura Estrella', desc: 'Alto Potencial / Medio Desempeño', color: 'bg-blue-50 border-blue-200' },
+    { id: '3-3', titulo: 'Estrella', desc: 'Alto Potencial / Alto Desempeño', color: 'bg-green-100 border-green-300 shadow-inner' },
+    { id: '2-1', titulo: 'Dilema', desc: 'Medio Potencial / Bajo Desempeño', color: 'bg-red-50 border-red-200' },
+    { id: '2-2', titulo: 'Jugador Clave', desc: 'Medio Potencial / Medio Desempeño', color: 'bg-slate-50 border-slate-200' },
+    { id: '2-3', titulo: 'Alto Impacto', desc: 'Medio Potencial / Alto Desempeño', color: 'bg-blue-50 border-blue-200' },
+    { id: '1-1', titulo: 'Riesgo', desc: 'Bajo Potencial / Bajo Desempeño', color: 'bg-[#FFF0F0] border-[#FF4C4C]/30 shadow-inner' },
+    { id: '1-2', titulo: 'Efectivo', desc: 'Bajo Potencial / Medio Desempeño', color: 'bg-orange-50 border-orange-200' },
+    { id: '1-3', titulo: 'Especialista', desc: 'Bajo Potencial / Alto Desempeño', color: 'bg-slate-50 border-slate-200' },
   ];
 
   const obtenerNivelDesempeño = (score: number) => {
@@ -958,14 +1359,14 @@ function MatrizNineBox({ empleados }: { empleados: Empleado[] }) {
   };
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200 mt-6">
-      <h2 className="text-2xl font-black text-slate-800 mb-2">Matriz de Talento (Nine-Box)</h2>
-      <p className="text-sm text-slate-500 mb-6">Clasificación automática basada en el cumplimiento de KPIs y potencial evaluado.</p>
+    <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 mt-6">
+      <h2 className="text-xl font-bold text-slate-800 mb-1">Matriz de Talento (Nine-Box)</h2>
+      <p className="text-xs text-slate-500 mb-6">Clasificación automática basada en el cumplimiento de KPIs y potencial evaluado.</p>
       <div className="relative pl-8 pb-8">
         <div className="absolute left-0 top-0 bottom-8 w-8 flex flex-col justify-center items-center">
-          <span className="transform -rotate-90 text-xs font-bold text-slate-400 tracking-widest uppercase whitespace-nowrap">Potencial (Crecimiento) ➔</span>
+          <span className="transform -rotate-90 text-[10px] font-bold text-slate-400 tracking-widest uppercase whitespace-nowrap">Potencial (Crecimiento) ➔</span>
         </div>
-        <div className="grid grid-cols-3 grid-rows-3 gap-2 h-[600px]">
+        <div className="grid grid-cols-3 grid-rows-3 gap-2 h-[500px]">
           {cuadrantes.map((c) => {
             const [potencialReq, desempeñoReq] = c.id.split('-').map(Number);
             const empleadosAqui = empleados.filter(emp => {
@@ -974,21 +1375,21 @@ function MatrizNineBox({ empleados }: { empleados: Empleado[] }) {
               return pot === potencialReq && des === desempeñoReq;
             });
             return (
-              <div key={c.id} className={`p-3 rounded-lg border-2 flex flex-col ${c.color} transition-all hover:shadow-md`}>
-                <div className="mb-2 border-b border-white/50 pb-2">
-                  <h3 className="font-bold text-slate-800 text-sm">{c.titulo}</h3>
-                  <p className="text-[9px] text-slate-600 uppercase font-semibold">{c.desc}</p>
+              <div key={c.id} className={`p-3 rounded-xl border flex flex-col ${c.color} transition-all`}>
+                <div className="mb-2 border-b border-black/5 pb-2">
+                  <h3 className="font-bold text-slate-700 text-xs">{c.titulo}</h3>
+                  <p className="text-[8px] text-slate-500 uppercase font-semibold">{c.desc}</p>
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
                   {empleadosAqui.map(emp => (
-                    <div key={emp.id} className="bg-white/80 backdrop-blur-sm p-2 rounded text-xs border border-white font-medium text-slate-700 shadow-sm flex justify-between items-center">
+                    <div key={emp.id} className="bg-white p-2 rounded-lg text-xs border border-slate-100 font-medium text-slate-700 shadow-sm flex justify-between items-center">
                       <span className="truncate pr-2">{emp.nombre}</span>
-                      <span className="text-[10px] bg-slate-200 px-1.5 rounded text-slate-600 font-bold">{emp.cumplimiento_general}%</span>
+                      <span className="text-[10px] bg-slate-100 px-1.5 rounded text-slate-600 font-bold">{emp.cumplimiento_general}%</span>
                     </div>
                   ))}
                   {empleadosAqui.length === 0 && (
-                    <div className="h-full flex items-center justify-center opacity-30">
-                      <span className="text-xs font-medium text-slate-500">Vacío</span>
+                    <div className="h-full flex items-center justify-center opacity-40">
+                      <span className="text-[10px] font-medium text-slate-400">Vacío</span>
                     </div>
                   )}
                 </div>
@@ -997,7 +1398,7 @@ function MatrizNineBox({ empleados }: { empleados: Empleado[] }) {
           })}
         </div>
         <div className="absolute bottom-0 left-8 right-0 h-8 flex justify-center items-center">
-          <span className="text-xs font-bold text-slate-400 tracking-widest uppercase">Desempeño (Score KPIs) ➔</span>
+          <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">Desempeño (Score KPIs) ➔</span>
         </div>
       </div>
     </div>
