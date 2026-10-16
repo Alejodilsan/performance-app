@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 // --- TIPOS DE DATOS ---
 interface Area { id: number; nombre: string; lider_id: number | null; parent_id: number | null; children?: Area[]; empleados?: Empleado[]; }
-interface Indicador { id: number; titulo: string; progreso: number; }
+interface Indicador { id: number; titulo: string; progreso: number; descripcion?: string; unidad_medida?: string; meta_esperada?: number; resultado_actual?: number; }
 interface Comentario { id: number; autor: string; texto: string; created_at: string; }
 interface Plan { id: number; compromiso: string; estado: string; fecha_limite: string; created_at: string; comentarios?: Comentario[]; }
 interface Evaluacion { id: number; evaluador_id: number; evaluado_id: number; tipo: string; puntuacion: number; feedback: string; created_at: string; }
@@ -25,7 +25,8 @@ interface FuncionesTarjeta {
   asignarAreaEmpleado: (eid: number, aid: string) => Promise<void>;
   actualizarIndicador: (id: number, val: number, eid: number) => Promise<void>;
   actualizarPotencial: (eid: number, val: number) => Promise<void>;
-  agregarIndicador: (eid: number) => Promise<void>;
+  agregarIndicador: (eid: number, datosKpi: any) => Promise<void>; // <--- Asegúrate de que esta línea esté así
+  eliminarIndicador: (id: number) => Promise<void>; // <--- Asegúrate de que esta línea exista
   crearPlan: (eid: number) => Promise<void>;
   completarPlan: (pid: number, est: string) => Promise<void>;
   setExpandidoId: (id: number | null) => void;
@@ -332,30 +333,80 @@ const toggleArea = (id: number) => {
   async function asignarAreaEmpleado(eid: number, aid: string) { await supabase.from('empleados').update({ area_id: aid === "" ? null : parseInt(aid) }).eq('id', eid); recargarDatos(); }
   async function agregarEmpleado(e: React.FormEvent) { e.preventDefault(); await supabase.from('empleados').insert([{ nombre, puesto, email: emailEmpleado, cumplimiento_general: 0, empresa_id: perfil?.empresa_id }]); recargarDatos(); }
 
-  async function agregarIndicador(eid: number) {
-    const texto = nuevosIndicadores[eid];
-    if (!texto) return;
-    await supabase.from('indicadores').insert([{ empleado_id: eid, titulo: texto, progreso: 0 }]);
-    setNuevosIndicadores({ ...nuevosIndicadores, [eid]: '' });
+  async function agregarIndicador(eid: number, datosKpi: any) {
+    if (!datosKpi.titulo) return;
+    await supabase.from('indicadores').insert([{ 
+      empleado_id: eid, 
+      titulo: datosKpi.titulo, 
+      descripcion: datosKpi.descripcion,
+      unidad_medida: datosKpi.unidad_medida,
+      meta_esperada: datosKpi.meta_esperada,
+      direccion: datosKpi.direccion || 'creciente', // Guardamos la dirección
+      progreso: 0,
+      resultado_actual: 0
+    }]);
     recargarDatos();
+  }
+
+  // Asegúrate de que eliminarIndicador esté definida correctamente (ya tenías un borrador, asegúrate de que sea este)
+  async function eliminarIndicador(id: number) {
+    const confirmar = window.confirm("¿Seguro que deseas eliminar este indicador?");
+    if (!confirmar) return;
+
+    const { error } = await supabase.from('indicadores').delete().eq('id', id);
+    if (error) { alert("Error al eliminar: " + error.message); } 
+    else { alert("Indicador eliminado."); recargarDatos(); }
   }
 
   async function actualizarIndicador(id: number, val: number, eid: number) {
     const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
     const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
     let nuevoPromedioCalculado = 0;
+
     const updatedList = targetList.map(emp => {
       if (emp.id === eid) {
-        const nuevosIndicadoresEmp = emp.indicadores?.map((i: any) => i.id === id ? { ...i, progreso: val } : i) || [];
+        const nuevosIndicadoresEmp = emp.indicadores?.map((i: any) => {
+          if (i.id === id) {
+            const metaReal = i.meta_esperada && i.meta_esperada > 0 ? i.meta_esperada : 1;
+            let porcentajeCalculado = 0;
+
+            if (i.direccion === 'decreciente') {
+              // LÓGICA INVERSA (Menos es mejor)
+              if (val <= 0) {
+                porcentajeCalculado = 0; 
+              } else if (val <= metaReal) {
+                porcentajeCalculado = 100; // Si demora menos que la meta = 100% éxito
+              } else {
+                porcentajeCalculado = Math.round((metaReal / val) * 100); // Pierde puntos al pasarse
+              }
+            } else {
+              // LÓGICA DIRECTA (Más es mejor)
+              porcentajeCalculado = Math.round((val / metaReal) * 100);
+            }
+
+            if (porcentajeCalculado > 100) porcentajeCalculado = 100;
+            if (porcentajeCalculado < 0) porcentajeCalculado = 0;
+
+            return { ...i, resultado_actual: val, progreso: porcentajeCalculado };
+          }
+          return i;
+        }) || [];
+
         const suma = nuevosIndicadoresEmp.reduce((acc: any, curr: any) => acc + curr.progreso, 0);
         const nuevoPromedio = nuevosIndicadoresEmp.length > 0 ? Math.round(suma / nuevosIndicadoresEmp.length) : 0;
         nuevoPromedioCalculado = nuevoPromedio;
+        
         return { ...emp, indicadores: nuevosIndicadoresEmp, cumplimiento_general: nuevoPromedio };
       }
       return emp;
     });
+
     setter(updatedList);
-    await supabase.from('indicadores').update({ progreso: val }).eq('id', id);
+
+    const kpiActualizado = updatedList.find(e => e.id === eid)?.indicadores?.find(i => i.id === id);
+    const progresoGuardar = kpiActualizado ? kpiActualizado.progreso : 0;
+
+    await supabase.from('indicadores').update({ resultado_actual: val, progreso: progresoGuardar }).eq('id', id);
     await supabase.from('empleados').update({ cumplimiento_general: nuevoPromedioCalculado }).eq('id', eid);
   }
 
@@ -385,6 +436,20 @@ const toggleArea = (id: number) => {
     alert("Evaluación enviada"); recargarDatos();
   }
 
+// FUNCIÓN PARA ELIMINAR UN PLAN DE MEJORA
+  async function calificarIndicador(indicadorId: number, resultadoObtenido: number) {
+    const { error } = await supabase
+      .from('indicadores')
+      .update({ resultado_actual: resultadoObtenido })
+      .eq('id', indicadorId);
+
+    if (error) {
+      alert("Error al guardar la calificación: " + error.message);
+    } else {
+      alert("Calificación guardada exitosamente.");
+      recargarDatos();
+    }
+  }
   function abrirModalInvitacion() {
   const candidatos = empleados.filter(emp => emp.email !== perfil?.email);
   if (candidatos.length === 0) {
@@ -483,10 +548,11 @@ async function confirmarInvitacionMasiva() {
 
   // Objeto de funciones tipado que se pasa a TarjetaEmpleado
   const funcionesTarjeta: FuncionesTarjeta = {
-    asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador, crearPlan, completarPlan,
-    setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
-    diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
-  };
+  asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador, crearPlan, completarPlan,
+  setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
+  diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
+  eliminarIndicador, 
+};
 
   // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
   return (
@@ -1271,47 +1337,71 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
               <span className="text-[10px] text-slate-400 font-bold">{emp.indicadores?.length || 0} activos</span>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 mb-3">
               {emp.indicadores?.map((ind) => (
-                <div key={ind.id} className="bg-white p-3 rounded-xl border border-slate-200/70 shadow-sm">
-                  <div className="flex justify-between text-xs mb-1.5 font-semibold text-slate-700">
-                    <span className="truncate pr-2">{ind.titulo}</span>
-                    <span className={ind.progreso < 70 ? 'text-[#FF4C4C] font-black' : 'text-slate-800 font-black'}>
-                      {ind.progreso}%
-                    </span>
-                  </div>
-                  {allowEdit ? (
-                    <input
-                      type="range"
-                      className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800"
-                      value={ind.progreso}
-                      onChange={(e) => actualizarIndicador(ind.id, parseInt(e.target.value), emp.id)}
-                    />
-                  ) : (
-                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-slate-800 rounded-full" style={{ width: `${ind.progreso}%` }}></div>
-                    </div>
+                <div key={ind.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group">
+                  
+                  {/* BOTÓN DE ELIMINAR (SIEMPRE VISIBLE EN ROJO SUAVE) */}
+                  {allowEdit && (
+                    <button 
+                      onClick={() => funciones.eliminarIndicador(ind.id)}
+                      className="absolute top-2 right-2 text-red-300 hover:text-red-600 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors text-xs font-bold"
+                      title="Eliminar KPI"
+                    >
+                      🗑️ Borrar
+                    </button>
                   )}
+
+                  <div className="pr-16">
+                    <div className="flex justify-between items-center mb-1 font-semibold text-slate-700">
+                      <span className="truncate text-sm">{ind.titulo}</span>
+                      <span className={`text-lg ml-2 ${ind.progreso < 70 ? 'text-[#FF4C4C] font-black' : 'text-slate-800 font-black'}`}>
+                        {ind.progreso || 0}%
+                      </span>
+                    </div>
+                    {ind.descripcion && <p className="text-[11px] text-slate-500 mb-3 leading-tight border-b border-slate-100 pb-2">{ind.descripcion}</p>}
+                  </div>
+                  
+                  <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                    <div className="flex-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Meta a lograr:</span>
+                      <span className="text-sm font-bold text-slate-800">{ind.meta_esperada || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida || 'Und.'}</span></span>
+                    </div>
+                    
+                    <div className="w-px h-8 bg-slate-200 mx-2"></div>
+                    
+                    <div className="flex-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Resultado actual:</span>
+                      {allowEdit ? (
+                        <div className="flex items-center gap-2">
+                           <input
+                              type="number"
+                              className="w-20 p-1.5 text-xs bg-white border border-slate-300 rounded focus:border-[#FF4C4C] outline-none text-slate-800 font-bold"
+                              value={ind.resultado_actual === 0 ? '' : ind.resultado_actual}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                actualizarIndicador(ind.id, isNaN(val) ? 0 : val, emp.id);
+                              }}
+/>
+                           <span className="text-xs text-slate-500">{ind.unidad_medida}</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-bold text-slate-800">{ind.resultado_actual || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida}</span></span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Barra visual de cumplimiento */}
+                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden mt-3 w-full">
+                     <div className={`h-full rounded-full ${ind.progreso >= 100 ? 'bg-emerald-500' : ind.progreso >= 70 ? 'bg-blue-500' : 'bg-[#FF4C4C]'}`} style={{ width: `${ind.progreso || 0}%` }}></div>
+                  </div>
                 </div>
               ))}
             </div>
 
             {allowEdit && (
-              <div className="flex gap-2 mt-3">
-                <input
-                  className="flex-1 p-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-slate-400"
-                  placeholder="Nuevo KPI..."
-                  value={nuevosIndicadores[emp.id] || ''}
-                  onChange={e => setNuevosIndicadores({ ...nuevosIndicadores, [emp.id]: e.target.value })}
-                  onKeyDown={e => { if (e.key === 'Enter') agregarIndicador(emp.id); }}
-                />
-                <button
-                  onClick={() => agregarIndicador(emp.id)}
-                  className="bg-slate-800 text-white px-3 rounded-lg text-xs font-bold hover:bg-slate-900 transition-colors"
-                >
-                  +
-                </button>
-              </div>
+              <FormularioNuevoKPI empId={emp.id} onAdd={agregarIndicador} />
             )}
           </div>
 
@@ -1490,5 +1580,67 @@ function MatrizNineBox({ empleados }: { empleados: Empleado[] }) {
         </div>
       </div>
     </div>
+  );
+}
+function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (eid: number, data: any) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [titulo, setTitulo] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+  const [unidad, setUnidad] = useState('Cantidad');
+  const [meta, setMeta] = useState('');
+  const [direccion, setDireccion] = useState<'creciente' | 'decreciente'>('creciente'); // NUEVO ESTADO
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!titulo || !meta) return alert("El título y la meta son obligatorios");
+    
+    onAdd(empId, {
+      titulo,
+      descripcion,
+      unidad_medida: unidad,
+      meta_esperada: parseFloat(meta) || 0,
+      direccion // NUEVO DATO QUE SE ENVÍA
+    });
+    
+    setTitulo(''); setDescripcion(''); setMeta(''); setDireccion('creciente'); setAbierto(false);
+  };
+
+  if (!abierto) {
+    return (
+      <button type="button" onClick={() => setAbierto(true)} className="w-full py-2 mt-2 border-2 border-dashed border-slate-200 text-slate-400 text-xs font-bold rounded-xl hover:border-slate-300 hover:text-slate-500 transition-colors">
+        + Agregar Nuevo KPI
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-slate-100 p-3 rounded-xl border border-slate-200 space-y-2 mt-2">
+      <input autoFocus placeholder="Título del KPI (Ej: Tiempo de contratación)" className="w-full text-xs p-2 rounded outline-none border border-slate-200 bg-white" value={titulo} onChange={e => setTitulo(e.target.value)} required />
+      <textarea placeholder="Descripción o contexto del indicador..." className="w-full text-xs p-2 rounded outline-none border border-slate-200 bg-white resize-none h-12" value={descripcion} onChange={e => setDescripcion(e.target.value)} />
+      
+      {/* NUEVO SELECTOR DE SENTIDO DEL KPI */}
+      <div>
+        <label className="text-[10px] font-bold text-slate-500 block mb-1 uppercase">¿Cómo se mide el éxito?</label>
+        <select className="w-full text-xs p-2 rounded outline-none border border-slate-200 bg-white text-slate-700 font-medium" value={direccion} onChange={e => setDireccion(e.target.value as 'creciente' | 'decreciente')}>
+          <option value="creciente">📈 Normal (Más es mejor: Ventas, PQRs resueltas)</option>
+          <option value="decreciente">📉 Inverso (Menos es mejor: Tiempos, Costos, Rotación)</option>
+        </select>
+      </div>
+
+      <div className="flex gap-2">
+        <select className="flex-1 text-xs p-2 rounded outline-none border border-slate-200 bg-white text-slate-600" value={unidad} onChange={e => setUnidad(e.target.value)}>
+          <option value="Cantidad">Cantidad (#)</option>
+          <option value="%">% (Porcentaje)</option>
+          <option value="$">$ (Moneda)</option>
+          <option value="Días">Días</option>
+        </select>
+        <input type="number" placeholder="Meta esperada" className="flex-1 text-xs p-2 rounded outline-none border border-slate-200 bg-white" value={meta} onChange={e => setMeta(e.target.value)} required />
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={() => setAbierto(false)} className="flex-1 text-[10px] font-bold text-slate-500 hover:bg-slate-200 py-1.5 rounded transition">Cancelar</button>
+        <button type="submit" className="flex-1 text-[10px] font-bold text-white bg-slate-800 hover:bg-slate-900 py-1.5 rounded transition">Guardar KPI</button>
+      </div>
+    </form>
   );
 }
