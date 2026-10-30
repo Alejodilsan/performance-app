@@ -16,7 +16,16 @@ interface Indicador {
   meta_esperada?: number; 
   resultado_actual?: number;
   direccion?: 'creciente' | 'decreciente';
-  periodo?: 'mensual' | 'trimestral' | 'semestral' | 'anual'; // <-- Nuevo
+  periodo?: 'mensual' | 'trimestral' | 'semestral' | 'anual';
+  feedback_lider?: string; 
+  fecha_feedback?: string;
+}
+interface DimensionPotencial {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  nota: number; // Calificación de 1 a 5
+  peso: number; // Porcentaje de 0 a 100
 }
 interface Comentario { id: number; autor: string; texto: string; created_at: string; }
 interface Plan { id: number; compromiso: string; estado: string; fecha_limite: string; created_at: string; comentarios?: Comentario[]; }
@@ -45,9 +54,9 @@ interface Perfil {
 interface FuncionesTarjeta {
   asignarAreaEmpleado: (eid: number, aid: string) => Promise<void>;
   actualizarIndicador: (id: number, val: number, eid: number) => Promise<void>;
-  actualizarPotencial: (eid: number, val: number) => Promise<void>;
-  agregarIndicador: (eid: number, datosKpi: any) => Promise<void>; // <--- Asegúrate de que esta línea esté así
-  eliminarIndicador: (id: number) => Promise<void>; // <--- Asegúrate de que esta línea exista
+  actualizarPotencial?: (eid: number, val: number) => Promise<void>;
+  agregarIndicador: (eid: number, datosKpi: any) => Promise<void>;
+  eliminarIndicador: (id: number) => Promise<void>;
   crearPlan: (eid: number) => Promise<void>;
   completarPlan: (pid: number, est: string) => Promise<void>;
   setExpandidoId: (id: number | null) => void;
@@ -65,7 +74,8 @@ interface FuncionesTarjeta {
   nuevosComentarios: { [key: number]: string };
   setNuevosComentarios: (v: { [key: number]: string }) => void;
   actualizarDescripcionPuesto?: (eid: number, desc: string) => Promise<void>;
-
+  guardarEvaluacionPotencial?: (eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) => Promise<void>;
+  guardarFeedbackKPI?: (kpiId: number, eid: number, feedback: string) => Promise<void>;
 }
 
 interface PropsTarjeta {
@@ -435,13 +445,55 @@ const toggleArea = (id: number) => {
     await supabase.from('empleados').update({ cumplimiento_general: nuevoPromedioCalculado }).eq('id', eid);
   }
 
-  async function actualizarPotencial(eid: number, nuevoPotencial: number) {
+  async function guardarEvaluacionPotencial(eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) {
     const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
     const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
+    
+    // Usamos el ID numérico del empleado evaluador si existe, o null
+    const evaluadorIdNumerico = miDesempeno?.id || null;
+
+    const { error } = await supabase.from('evaluaciones_potencial').insert([{
+      empleado_id: eid,
+      evaluador_id: evaluadorIdNumerico,
+      scores_dimensiones: dimensiones,
+      puntaje_obtenido: puntajeFinal,
+      nivel_resultado: nivel,
+      justificacion: justificacion
+    }]);
+
+    if (error) {
+      console.error("Error al registrar evaluación de potencial:", error);
+      alert("Hubo un error al guardar en base de datos: " + error.message);
+      return;
+    }
+
+    // Actualiza la tarjeta localmente para sincronizar el Nine-Box al instante
     setter(targetList.map(emp =>
-      emp.id === eid ? { ...emp, potencial_score: nuevoPotencial as 1 | 2 | 3 } : emp
+      emp.id === eid ? { ...emp, potencial_score: nivel } : emp
     ));
-    await supabase.from('empleados').update({ potencial_score: nuevoPotencial }).eq('id', eid);
+    await supabase.from('empleados').update({ potencial_score: nivel }).eq('id', eid);
+    
+    alert("✅ Evaluación de potencial guardada exitosamente.");
+    recargarDatos();
+  }
+
+  // --- FUNCIÓN 2: GUARDAR FEEDBACK EN EL KPI ---
+  async function guardarFeedbackKPI(kpiId: number, eid: number, feedback: string) {
+    const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
+    const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
+
+    const fechaActual = new Date().toISOString();
+
+    const updatedList = targetList.map(emp => {
+      if (emp.id === eid) {
+        const nuevosInds = emp.indicadores?.map(i => i.id === kpiId ? { ...i, feedback_lider: feedback, fecha_feedback: fechaActual } : i) || [];
+        return { ...emp, indicadores: nuevosInds };
+      }
+      return emp;
+    });
+
+    setter(updatedList);
+    await supabase.from('indicadores').update({ feedback_lider: feedback, fecha_feedback: fechaActual }).eq('id', kpiId);
   }
 
   async function crearPlan(eid: number) { const txt = textosPlanes[eid]; if (!txt) return; const lim = new Date(); lim.setDate(lim.getDate() + (diasPlanes[eid] || 7)); await supabase.from('planes_mejora').insert([{ empleado_id: eid, compromiso: txt, created_at: new Date().toISOString(), fecha_limite: lim.toISOString(), estado: 'pendiente' }]); setTextosPlanes({ ...textosPlanes, [eid]: '' }); recargarDatos(); }
@@ -581,11 +633,12 @@ async function confirmarInvitacionMasiva() {
 
   // Objeto de funciones tipado que se pasa a TarjetaEmpleado
   const funcionesTarjeta: FuncionesTarjeta = {
-  asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador, crearPlan, completarPlan,
-  setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
-  diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
-  eliminarIndicador, actualizarDescripcionPuesto,
-};
+    asignarAreaEmpleado, actualizarIndicador, agregarIndicador, crearPlan, completarPlan,
+    setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
+    diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
+    eliminarIndicador, actualizarDescripcionPuesto,
+    guardarEvaluacionPotencial, guardarFeedbackKPI, // <-- Añadidas aquí
+  };
 
   // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
   return (
@@ -1226,9 +1279,9 @@ function TarjetaSaludArea({
 }
 function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTarjeta) {
   const {
-    asignarAreaEmpleado, actualizarIndicador, actualizarPotencial, agregarIndicador,
-    crearPlan, completarPlan, setExpandidoId, expandidoId, nuevosIndicadores,
-    setNuevosIndicadores, textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes,
+    asignarAreaEmpleado, actualizarIndicador, agregarIndicador,
+    crearPlan, completarPlan, setExpandidoId, expandidoId,
+    textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes,
     calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario,
     nuevosComentarios, setNuevosComentarios
   } = funciones;
@@ -1238,6 +1291,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
   const planesVencidos = planesActivos.filter(p => calcularGantt(p.created_at, p.fecha_limite).esVencido);
   const colorDesempeno = emp.cumplimiento_general >= 85 ? 'text-emerald-600' : emp.cumplimiento_general >= 70 ? 'text-blue-600' : 'text-[#FF4C4C]';
   const barBg = emp.cumplimiento_general >= 85 ? 'bg-emerald-500' : emp.cumplimiento_general >= 70 ? 'bg-blue-600' : 'bg-[#FF4C4C]';
+  const [modalPotencialAbierto, setModalPotencialAbierto] = useState(false);
 
   // --- FILTRO Y CÁLCULO POR PERIODO ---
   const [periodoFiltro, setPeriodoFiltro] = useState<'todos' | 'mensual' | 'trimestral' | 'semestral' | 'anual'>('todos');
@@ -1301,25 +1355,24 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
 
         {/* Chips de Diagnóstico Rápido */}
         <div className="flex items-center justify-between gap-2 pt-1 text-xs">
+          {/* Potencial Nine-Box Robusto */}
           {allowEdit ? (
-            <div className="relative inline-block">
-              <select
-                value={emp.potencial_score || 1}
-                onChange={(e) => actualizarPotencial(emp.id, parseInt(e.target.value))}
-                className="bg-slate-50 border border-slate-200/80 rounded-lg text-[11px] font-semibold text-slate-700 py-1 px-2 pr-6 outline-none focus:border-slate-400 cursor-pointer appearance-none transition-colors"
-              >
-                <option value="1">🌱 Potencial Bajo</option>
-                <option value="2">🚀 Potencial Medio</option>
-                <option value="3">⭐ Potencial Alto</option>
-              </select>
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400">▼</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setModalPotencialAbierto(true)}
+              className="bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-lg text-[11px] font-semibold text-slate-700 py-1 px-2.5 transition-colors flex items-center gap-1.5"
+              title="Evaluar Potencial"
+            >
+              {emp.potencial_score === 3 ? '⭐ Alto Potencial' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
+              <span className="text-[9px] text-slate-400 ml-1">✏️</span>
+            </button>
           ) : (
             <span className="bg-slate-50 text-slate-600 border border-slate-200/60 text-[11px] font-semibold px-2.5 py-1 rounded-lg">
               {emp.potencial_score === 3 ? '⭐ Alto Potencial' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
             </span>
           )}
 
+          {/* Estado de Acciones */}
           <div className="flex items-center gap-1.5">
             {planesVencidos.length > 0 ? (
               <span className="text-[11px] bg-red-50 text-red-600 border border-red-100 font-bold px-2 py-0.5 rounded-lg flex items-center gap-1">
@@ -1346,6 +1399,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
       {/* 2. BOTÓN DE APERTURA OPERATIVA */}
       <div className="border-t border-slate-100 bg-slate-50/50">
         <button
+          type="button"
           onClick={() => setExpandidoId(estaExpandido ? null : emp.id)}
           className={`w-full py-2.5 text-center text-[11px] font-bold tracking-wider uppercase transition-colors flex items-center justify-center gap-2 ${
             estaExpandido
@@ -1423,6 +1477,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                   
                   {allowEdit && (
                     <button 
+                      type="button"
                       onClick={() => funciones.eliminarIndicador(ind.id)}
                       className="absolute top-2 right-2 text-red-300 hover:text-red-600 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors text-xs font-bold"
                       title="Eliminar KPI"
@@ -1474,8 +1529,33 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                     </div>
                   </div>
 
+                  {/* Barra de progreso */}
                   <div className="h-2 bg-slate-200 rounded-full overflow-hidden mt-3 w-full">
                      <div className={`h-full rounded-full ${ind.progreso >= 100 ? 'bg-emerald-500' : ind.progreso >= 70 ? 'bg-blue-500' : 'bg-[#FF4C4C]'}`} style={{ width: `${ind.progreso || 0}%` }}></div>
+                  </div>
+
+                  {/* Feedback Continuo del Líder */}
+                  <div className="mt-3 pt-3 border-t border-slate-100">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Feedback del proceso (Líder)</label>
+                    {allowEdit ? (
+                      <textarea
+                        className="w-full text-[10px] bg-slate-50/50 border border-slate-200 rounded p-2 text-slate-600 outline-none focus:border-slate-400 resize-none min-h-[40px]"
+                        placeholder="Añade observaciones sobre el avance de este KPI..."
+                        defaultValue={ind.feedback_lider || ''}
+                        onBlur={(e) => {
+                          if (e.target.value !== ind.feedback_lider) {
+                            funciones.guardarFeedbackKPI?.(ind.id, emp.id, e.target.value);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <p className="text-[10px] text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 italic">
+                        {ind.feedback_lider || "Aún no hay retroalimentación registrada."}
+                      </p>
+                    )}
+                    {ind.fecha_feedback && (
+                      <p className="text-[8px] text-slate-400 mt-1 text-right">Última rev: {new Date(ind.fecha_feedback).toLocaleDateString()}</p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1508,6 +1588,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                         </span>
                         <div className="flex gap-1">
                           <button
+                            type="button"
                             onClick={() => setPlanChatAbierto(planChatAbierto === plan.id ? null : plan.id)}
                             className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
                           >
@@ -1515,6 +1596,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                           </button>
                           {allowEdit && (
                             <button
+                              type="button"
                               onClick={() => completarPlan(plan.id, plan.estado)}
                               className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors ${
                                 plan.estado === 'completado' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
@@ -1533,6 +1615,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                         </span>
                       </div>
 
+                      {/* Chat de comentarios */}
                       {planChatAbierto === plan.id && (
                         <div className="mt-2.5 pt-2 border-t border-slate-100">
                           <div className="max-h-24 overflow-y-auto space-y-1.5 mb-2 custom-scrollbar">
@@ -1552,6 +1635,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                               onKeyDown={e => { if (e.key === 'Enter') enviarComentario(plan.id); }}
                             />
                             <button
+                              type="button"
                               onClick={() => enviarComentario(plan.id)}
                               className="bg-slate-800 text-white px-2.5 rounded text-[10px] font-bold"
                             >
@@ -1568,6 +1652,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
               <p className="text-xs text-slate-400 italic mb-2">Sin compromisos asignados.</p>
             )}
 
+            {/* Asignar nuevo compromiso */}
             {allowEdit && (
               <div className="mt-3 flex gap-1.5">
                 <input
@@ -1587,6 +1672,7 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
                   <option value={30}>30d</option>
                 </select>
                 <button
+                  type="button"
                   onClick={() => crearPlan(emp.id)}
                   className="bg-slate-800 text-white px-3 rounded-lg font-bold hover:bg-slate-900 transition-colors"
                 >
@@ -1597,6 +1683,18 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
           </div>
 
         </div>
+      )}
+
+      {/* MODAL DE EVALUACIÓN DE POTENCIAL */}
+      {modalPotencialAbierto && (
+        <ModalEvaluacionPotencial 
+          emp={emp} 
+          onClose={() => setModalPotencialAbierto(false)} 
+          onSave={(eid, score, nivel, just, dim) => {
+            funciones.guardarEvaluacionPotencial?.(eid, score, nivel, just, dim);
+            setModalPotencialAbierto(false);
+          }} 
+        />
       )}
 
     </div>
@@ -1741,5 +1839,224 @@ function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (eid: numb
         <button type="submit" className="flex-1 text-[10px] font-bold text-white bg-slate-800 hover:bg-slate-900 py-1.5 rounded transition">Guardar KPI</button>
       </div>
     </form>
+  );
+}
+function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Empleado, onClose: () => void, onSave: (eid: number, score: number, nivel: 1|2|3, just: string, dim: any) => void }) {
+  const dimensionesIniciales: DimensionPotencial[] = [
+    { id: 'apz', nombre: 'Agilidad de Aprendizaje', descripcion: 'Velocidad para incorporar nuevos conocimientos y aplicarlos a problemas inéditos.', nota: 3, peso: 17 },
+    { id: 'adt', nombre: 'Adaptabilidad', descripcion: 'Capacidad de operar con eficacia en contextos de alta ambigüedad y pivotar ante cambios.', nota: 3, peso: 17 },
+    { id: 'est', nombre: 'Pensamiento Estratégico', descripcion: 'Comprensión holística del negocio, anticipación de tendencias y priorización.', nota: 3, peso: 17 },
+    { id: 'res', nombre: 'Resolución de Problemas', descripcion: 'Destreza analítica para identificar causas raíz y proponer soluciones escalables.', nota: 3, peso: 17 },
+    { id: 'inf', nombre: 'Influencia y Liderazgo', descripcion: 'Capacidad de persuadir y movilizar equipos sin necesidad de autoridad formal.', nota: 3, peso: 16 },
+    { id: 'asp', nombre: 'Aspiración de Crecimiento', descripcion: 'Deseo de asumir mayores responsabilidades y retos de mayor envergadura.', nota: 3, peso: 16 }
+  ];
+
+  const [dimensiones, setDimensiones] = useState<DimensionPotencial[]>(dimensionesIniciales);
+  const [justificacion, setJustificacion] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  // Suma total de pesos actual
+  const sumaPesos = dimensiones.reduce((acc, curr) => acc + (Number(curr.peso) || 0), 0);
+
+  // Cálculo normalizado del score ponderado (siempre entre 1.00 y 5.00)
+  const scoreCalculado = useMemo(() => {
+    if (sumaPesos === 0) return 0;
+    const ponderado = dimensiones.reduce((acc, curr) => acc + (curr.nota * (Number(curr.peso) || 0)), 0);
+    return parseFloat((ponderado / sumaPesos).toFixed(2));
+  }, [dimensiones, sumaPesos]);
+
+  let nivelCalculado: 1 | 2 | 3 = 1;
+  let etiquetaNivel = 'Bajo (20-49%)';
+  let colorNivel = 'text-red-600 bg-red-50 border-red-200';
+
+  if (scoreCalculado >= 3.75) {
+    nivelCalculado = 3;
+    etiquetaNivel = 'Alto (75-100%)';
+    colorNivel = 'text-emerald-700 bg-emerald-50 border-emerald-200';
+  } else if (scoreCalculado >= 2.50) {
+    nivelCalculado = 2;
+    etiquetaNivel = 'Medio (50-74%)';
+    colorNivel = 'text-blue-700 bg-blue-50 border-blue-200';
+  }
+
+  // Actualización con restricción estricta de 100%
+  const handleUpdate = (id: string, campo: 'nota' | 'peso', valor: number) => {
+    if (campo === 'peso') {
+      const otrosPesos = dimensiones
+        .filter(d => d.id !== id)
+        .reduce((acc, curr) => acc + (Number(curr.peso) || 0), 0);
+
+      // El máximo que puede ingresar este campo sin que el total pase de 100%
+      const maximoPermitido = Math.max(0, 100 - otrosPesos);
+      const valorAjustado = Math.min(Math.max(0, valor), maximoPermitido);
+
+      setDimensiones(prev => prev.map(d => d.id === id ? { ...d, peso: valorAjustado } : d));
+    } else {
+      setDimensiones(prev => prev.map(d => d.id === id ? { ...d, nota: valor } : d));
+    }
+  };
+
+  // Botón para distribuir automáticamente los pesos en partes equilibradas
+  const autoDistribuirPesos = () => {
+    setDimensiones([
+      { ...dimensiones[0], peso: 17 },
+      { ...dimensiones[1], peso: 17 },
+      { ...dimensiones[2], peso: 17 },
+      { ...dimensiones[3], peso: 17 },
+      { ...dimensiones[4], peso: 16 },
+      { ...dimensiones[5], peso: 16 },
+    ]);
+  };
+
+  const handleConfirmar = async () => {
+    if (sumaPesos !== 100) {
+      alert(`⚠️ Los pesos deben sumar exactamente 100%. Actualmente suman ${sumaPesos}% (faltan ${100 - sumaPesos}%).`);
+      return;
+    }
+    if (justificacion.trim().length < 20) {
+      alert(`⚠️ La justificación debe tener al menos 20 caracteres para respaldar la evaluación (actualmente tienes ${justificacion.trim().length}).`);
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      await onSave(emp.id, scoreCalculado, nivelCalculado, justificacion.trim(), dimensiones);
+    } catch (err: any) {
+      alert("Error al guardar: " + (err?.message || "Ocurrió un error inesperado"));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
+        
+        {/* Cabecera del Modal */}
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Evaluación de Potencial</h2>
+            <p className="text-xs text-slate-500">Colaborador: <strong className="text-slate-700">{emp.nombre}</strong></p>
+          </div>
+          <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 font-bold hover:bg-slate-300">✕</button>
+        </div>
+
+        {/* Cuerpo */}
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar flex flex-col lg:flex-row gap-6 bg-white">
+          
+          {/* Lado Izquierdo: Dimensiones */}
+          <div className="flex-1 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Las 6 Dimensiones</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={autoDistribuirPesos}
+                  className="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline"
+                >
+                  Distribuir 100%
+                </button>
+                <div className={`text-xs font-bold px-2 py-1 rounded border ${sumaPesos === 100 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                  Total: {sumaPesos}% {sumaPesos !== 100 && `(Faltan ${100 - sumaPesos}%)`}
+                </div>
+              </div>
+            </div>
+
+            {dimensiones.map(dim => (
+              <div key={dim.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-800">{dim.nombre}</h4>
+                    <p className="text-[10px] text-slate-500 leading-tight pr-4">{dim.descripcion}</p>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Peso:</span>
+                    <input 
+                      type="number"
+                      min="0"
+                      max="100" 
+                      className="w-14 text-xs p-1 rounded border border-slate-300 text-center font-bold text-slate-700 focus:border-slate-500 outline-none" 
+                      value={dim.peso === 0 ? '' : dim.peso} 
+                      onChange={e => handleUpdate(dim.id, 'peso', parseInt(e.target.value) || 0)}
+                    />
+                    <span className="text-xs font-bold text-slate-400">%</span>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center gap-2 mt-3 bg-white p-2 rounded-lg border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Calificación (1 a 5):</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <button 
+                        key={n}
+                        type="button"
+                        onClick={() => handleUpdate(dim.id, 'nota', n)}
+                        className={`w-7 h-7 rounded-full text-xs font-bold transition-colors ${dim.nota >= n ? 'bg-amber-400 text-white shadow-inner' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Lado Derecho: Score y Justificación */}
+          <div className="w-full lg:w-80 flex flex-col gap-4">
+            <div className={`p-5 rounded-2xl border flex flex-col items-center justify-center shadow-inner ${colorNivel}`}>
+              <span className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">Score Ponderado</span>
+              <span className="text-5xl font-black mb-2">{scoreCalculado.toFixed(2)}</span>
+              <span className="text-xs font-bold uppercase tracking-wider bg-white/60 px-3 py-1 rounded-full">{etiquetaNivel}</span>
+            </div>
+
+            <div className="flex-1 flex flex-col">
+              <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                Justificación Estratégica <span className="text-red-500">*</span>
+              </label>
+              <textarea 
+                className="flex-1 w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 outline-none focus:border-blue-400 shadow-sm resize-none min-h-[120px]"
+                placeholder="Argumenta el por qué de esta evaluación general. Explica las fortalezas demostradas y los gaps observados..."
+                value={justificacion}
+                onChange={e => setJustificacion(e.target.value)}
+              />
+              <div className="flex justify-between items-center text-[9px] mt-1 text-slate-400">
+                <span>Mínimo 20 caracteres</span>
+                <span className={justificacion.trim().length >= 20 ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
+                  {justificacion.trim().length}/20
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
+          <div className="text-xs">
+            {sumaPesos !== 100 ? (
+              <span className="text-amber-600 font-semibold">⚠️ Ajusta los pesos para sumar 100%</span>
+            ) : justificacion.trim().length < 20 ? (
+              <span className="text-amber-600 font-semibold">⚠️ Completa la justificación</span>
+            ) : (
+              <span className="text-emerald-600 font-bold">✅ Listo para guardar</span>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="px-5 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">
+              Cancelar
+            </button>
+            <button 
+              type="button"
+              onClick={handleConfirmar}
+              disabled={guardando}
+              className="px-6 py-2 text-xs font-bold text-white bg-slate-800 rounded-xl shadow-sm hover:bg-slate-900 transition-all disabled:opacity-50"
+            >
+              {guardando ? 'Guardando...' : 'Confirmar Potencial'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
   );
 }
