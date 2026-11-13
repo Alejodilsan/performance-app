@@ -3,7 +3,10 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import * as XLSX from 'xlsx'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { 
+  AreaChart, Area, ReferenceLine, BarChart, Bar, XAxis, YAxis, 
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
+} from 'recharts';
 
 // --- TIPOS DE DATOS ---
 interface Area { id: number; nombre: string; lider_id: number | null; parent_id: number | null; children?: Area[]; empleados?: Empleado[]; }
@@ -30,6 +33,16 @@ interface DimensionPotencial {
 interface Comentario { id: number; autor: string; texto: string; created_at: string; }
 interface Plan { id: number; compromiso: string; estado: string; fecha_limite: string; created_at: string; comentarios?: Comentario[]; }
 interface Evaluacion { id: number; evaluador_id: number; evaluado_id: number; tipo: string; puntuacion: number; feedback: string; created_at: string; }
+interface HistoricoCumplimiento {
+  id?: number;
+  empleado_id: number;
+  empresa_id?: number;
+  periodo: string;
+  cumplimiento: number;
+  potencial_score?: number;
+  total_kpis?: number;
+  fecha_corte: string;
+}
 interface Empleado { 
   id: number; 
   nombre: string; 
@@ -40,7 +53,8 @@ interface Empleado {
   area_id: number | null; 
   potencial_score?: 1 | 2 | 3; 
   indicadores?: Indicador[]; 
-  planes_mejora?: Plan[]; 
+  planes_mejora?: Plan[];
+  historico?: HistoricoCumplimiento[]; //
 }
 
 interface Perfil {
@@ -76,6 +90,7 @@ interface FuncionesTarjeta {
   actualizarDescripcionPuesto?: (eid: number, desc: string) => Promise<void>;
   guardarEvaluacionPotencial?: (eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) => Promise<void>;
   guardarFeedbackKPI?: (kpiId: number, eid: number, feedback: string) => Promise<void>;
+  verPerfilCompleto?: (emp: Empleado) => void;
 }
 
 interface PropsTarjeta {
@@ -106,6 +121,7 @@ interface PropsFormEval {
   colorTheme: 'purple' | 'blue' | 'emerald';
 }
 
+
 export default function DashboardPerformance() {
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [areas, setAreas] = useState<Area[]>([])
@@ -117,7 +133,38 @@ export default function DashboardPerformance() {
   // Estados para el Modal de Invitaciones Inteligentes
   const [modalInvitarAbierto, setModalInvitarAbierto] = useState(false);
   const [empleadosSeleccionadosParaInvitar, setEmpleadosSeleccionadosParaInvitar] = useState<number[]>([]);
+  // Estados para el Modal de Corte Oficial
+  const [modalCorteAbierto, setModalCorteAbierto] = useState(false);
+  const MESES_ANIO = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+  const ANIOS_DISPONIBLES = [2025, 2026, 2027, 2028];
+
+  const [mesCorte, setMesCorte] = useState<string>(MESES_ANIO[new Date().getMonth()]);
+  const [anioCorte, setAnioCorte] = useState<number>(new Date().getFullYear());
+  const [empleadoViendoPerfil, setEmpleadoViendoPerfil] = useState<Empleado | null>(null);
+  const [fechaCortePeriodo, setFechaCortePeriodo] = useState(new Date().toISOString().split('T')[0]);
+  const [ejecutandoCorte, setEjecutandoCorte] = useState(false);
+
+  const periodosBloqueados = useMemo(() => {
+    const mapa = new Map<string, { periodo: string; fecha: string; total: number }>();
+    empleados.forEach(emp => {
+      (emp.historico || []).forEach(h => {
+        const actual = mapa.get(h.periodo);
+        if (actual) {
+          actual.total += 1;
+        } else {
+          mapa.set(h.periodo, { periodo: h.periodo, fecha: h.fecha_corte, total: 1 });
+        }
+      });
+    });
+    return Array.from(mapa.values()).sort(
+      (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+    );
+  }, [empleados]);
   
+
   const [esLider, setEsLider] = useState(false)
   const [areaLiderada, setAreaLiderada] = useState<Area | null>(null)
   const [equipoLiderado, setEquipoLiderado] = useState<Empleado[]>([])
@@ -175,7 +222,7 @@ const toggleArea = (id: number) => {
     const { data: areasData } = await supabase.from('areas').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id).order('id');
     const { data: empData } = await supabase
       .from('empleados')
-      .select('*, indicadores(*), planes_mejora(*, comentarios(*))')
+      .select('*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)')
       .eq('empresa_id', perfilDeAcceso?.empresa_id)
       .order('id', { ascending: true });
     const { data: evalData } = await supabase.from('evaluaciones').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id);
@@ -199,7 +246,7 @@ const toggleArea = (id: number) => {
   async function identificarRolEmpleado(email: string) {
     const { data: miData } = await supabase
       .from('empleados')
-      .select('*, indicadores(*), planes_mejora(*, comentarios(*))')
+      .select('*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)')
       .eq('email', email)
       .single();
 
@@ -229,6 +276,72 @@ const toggleArea = (id: number) => {
 
   const recargarDatos = () => { if (perfil?.rol === 'admin') obtenerDatosCorporativos(perfil); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
 
+// 1. Guarda/actualiza automáticamente el punto del mes actual al calificar KPIs
+  async function registrarSnapshotMensual(eid: number, cumplimiento: number, potencial: number, totalKpis: number) {
+    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const ahora = new Date();
+    const periodoActual = `${meses[ahora.getMonth()]} ${ahora.getFullYear()}`;
+
+    await supabase.from('historico_cumplimiento').upsert(
+      {
+        empleado_id: eid,
+        empresa_id: perfil?.empresa_id,
+        periodo: periodoActual,
+        cumplimiento,
+        potencial_score: potencial,
+        total_kpis: totalKpis,
+        fecha_corte: ahora.toISOString(),
+      },
+      { onConflict: 'empleado_id, periodo' }
+    );
+  }
+
+  // 2. Formaliza un corte oficial masivo para toda la organización (Botón Admin)
+  async function ejecutarCorteOficial() {
+    const etiqueta = `${mesCorte} ${anioCorte}`;
+    if (!mesCorte || !anioCorte || !fechaCortePeriodo) {
+      alert("Debes seleccionar el mes, el año y la fecha de bloqueo.");
+      return;
+    }
+
+    const yaBloqueado = periodosBloqueados.some(
+      p => p.periodo.toLowerCase() === etiqueta.toLowerCase()
+    );
+    if (yaBloqueado) {
+      alert(`🔒 El periodo "${etiqueta}" ya se encuentra bloqueado.`);
+      return;
+    }
+
+    const confirmar = window.confirm(
+      `¿Deseas bloquear el periodo "${etiqueta}" con fecha ${fechaCortePeriodo} para ${empleados.length} colaboradores?`
+    );
+    if (!confirmar) return;
+
+    setEjecutandoCorte(true);
+    const fechaISO = new Date(`${fechaCortePeriodo}T12:00:00`).toISOString();
+
+    const snapshots = empleados.map(emp => ({
+      empleado_id: emp.id,
+      empresa_id: perfil?.empresa_id,
+      periodo: etiqueta,
+      cumplimiento: emp.cumplimiento_general || 0,
+      potencial_score: emp.potencial_score || 1,
+      total_kpis: emp.indicadores?.length || 0,
+      fecha_corte: fechaISO
+    }));
+
+    const { error } = await supabase
+      .from('historico_cumplimiento')
+      .upsert(snapshots, { onConflict: 'empleado_id, periodo' });
+
+    setEjecutandoCorte(false);
+    if (error) {
+      alert("Error al bloquear el periodo: " + error.message);
+    } else {
+      alert(`🔒 Periodo "${etiqueta}" bloqueado con fecha ${fechaCortePeriodo}.`);
+      recargarDatos();
+    }
+  }
   const descargarPlantilla = () => {
     // Datos de ejemplo para que el HR Manager sepa cómo llenar el Excel
     const datosEjemplo = [
@@ -443,6 +556,17 @@ const toggleArea = (id: number) => {
 
     await supabase.from('indicadores').update({ resultado_actual: val, progreso: progresoGuardar }).eq('id', id);
     await supabase.from('empleados').update({ cumplimiento_general: nuevoPromedioCalculado }).eq('id', eid);
+
+    // --- NUEVO: Actualiza el punto histórico del mes actual en tiempo real ---
+    const empActualizado = updatedList.find(e => e.id === eid);
+    if (empActualizado) {
+      await registrarSnapshotMensual(
+        eid,
+        nuevoPromedioCalculado,
+        empActualizado.potencial_score || 1,
+        empActualizado.indicadores?.length || 0
+      );
+    }
   }
 
   async function guardarEvaluacionPotencial(eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) {
@@ -637,7 +761,7 @@ async function confirmarInvitacionMasiva() {
     setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
     diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
     eliminarIndicador, actualizarDescripcionPuesto,
-    guardarEvaluacionPotencial, guardarFeedbackKPI, // <-- Añadidas aquí
+    guardarEvaluacionPotencial, guardarFeedbackKPI,verPerfilCompleto: (emp) => setEmpleadoViendoPerfil(emp),
   };
 
   // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
@@ -664,7 +788,7 @@ async function confirmarInvitacionMasiva() {
             <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Mi Espacio</p>
             <div className="space-y-1">
               <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={esAdmin} />
-              <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={!esAdmin} />
+              <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={!true} />
               <BotonLateral icono="👥" texto="Mi Equipo" activo={vista === 'mi_equipo'} onClick={() => setVista('mi_equipo')} visible={esLider && !esAdmin} />
               <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={esAdmin} />
             </div>
@@ -699,12 +823,23 @@ async function confirmarInvitacionMasiva() {
             <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm text-slate-400">
                <span className="mr-2">🔍</span> Buscar...
             </div>
+            {esAdmin && (
+              <button 
+                type="button"
+                onClick={() => setModalCorteAbierto(true)}
+                className="bg-slate-800 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-slate-900 transition flex items-center gap-1.5"
+                title="Generar snapshot formal de cumplimiento"
+              >
+                <span>📅</span> Cerrar Periodo
+              </button>
+            )}
 
             <button onClick={abrirModalInvitacion} disabled={invitando} className="bg-[#FF4C4C] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2">
               <span>✨</span> {invitando ? 'Enviando...' : 'Invitar Equipo'}
             </button>
             
             {esAdmin && (
+
                <div className="flex items-center gap-2">
                  <button onClick={descargarPlantilla} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200">
                    <span>⬇️</span> Plantilla
@@ -901,116 +1036,444 @@ async function confirmarInvitacionMasiva() {
               </div>
             )}
 
-            {/* --- CONTENIDO: MI PERFIL (Empleado sin equipo) --- */}
-            {!esAdmin && vista === 'mi_perfil' && miDesempeno && (
-              <div className="max-w-3xl mx-auto bg-white p-10 rounded-3xl shadow-sm border border-slate-100 border-t-4 border-t-[#FF4C4C] animate-in fade-in zoom-in-95 mt-4">
-                <h2 className="text-3xl font-black text-slate-800 mb-2">Mi Rendimiento</h2>
-                <div className="flex justify-between items-center mb-10 bg-[#FFF5F5] p-6 rounded-2xl border border-[#FFEAEA]">
-                  <div><h3 className="text-6xl font-black text-[#FF4C4C]">{miDesempeno.cumplimiento_general}%</h3></div>
-                  <div className="text-right"><p className="text-lg font-bold text-slate-800">{miDesempeno.nombre}</p><p className="text-slate-500 font-medium">{miDesempeno.puesto}</p></div>
+           {/* --- CONTENIDO: MI PERFIL (CURVA DE CUMPLIMIENTO HISTÓRICO) --- */}
+            {vista === 'mi_perfil' && miDesempeno && (() => {
+              const historicoOrdenado = [...(miDesempeno.historico || [])].sort(
+                (a, b) => new Date(a.fecha_corte).getTime() - new Date(b.fecha_corte).getTime()
+              );
+              const ultimoCorte = historicoOrdenado[historicoOrdenado.length - 1];
+              const corteAnterior = historicoOrdenado[historicoOrdenado.length - 2];
+              const variacion = ultimoCorte && corteAnterior 
+                ? Number((ultimoCorte.cumplimiento - corteAnterior.cumplimiento).toFixed(1)) 
+                : null;
+
+              return (
+                <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in zoom-in-95 mt-2">
+                  
+                  {/* 1. Cabecera del Colaborador y Score */}
+                  <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#FF4C4C] bg-red-50 px-3 py-1 rounded-full border border-red-100">
+                        Perfil & Performance
+                      </span>
+                      <h2 className="text-2xl md:text-3xl font-black text-slate-800 mt-2">{miDesempeno.nombre}</h2>
+                      <p className="text-slate-500 font-medium text-xs md:text-sm">{miDesempeno.puesto}</p>
+                      {miDesempeno.job_descripcion && (
+                        <p className="text-xs text-slate-400 mt-2 max-w-xl italic bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                          {miDesempeno.job_descripcion}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-4 shrink-0">
+                      {variacion !== null && (
+                        <div className={`px-3.5 py-2 rounded-2xl border text-center ${
+                          variacion >= 0 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                            : 'bg-red-50 border-red-200 text-red-700'
+                        }`}>
+                          <span className="text-[9px] font-black uppercase block">Tendencia</span>
+                          <span className="text-sm font-black">
+                            {variacion >= 0 ? `▲ +${variacion}%` : `▼ ${variacion}%`}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="bg-[#FFF5F5] p-5 rounded-2xl border border-[#FFEAEA] text-right min-w-[155px]">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Cumplimiento Actual</span>
+                        <h3 className="text-5xl font-black text-[#FF4C4C]">{miDesempeno.cumplimiento_general}%</h3>
+                        <span className="text-[10px] font-bold text-slate-500 mt-1 block">
+                          Potencial: {miDesempeno.potencial_score === 3 ? '⭐ Alto' : miDesempeno.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Gráfica de Curva de Cumplimiento a través del tiempo */}
+                  <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                          📈 Curva de Cumplimiento a través del Tiempo
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Histórico consolidado por periodo ({historicoOrdenado.length} {historicoOrdenado.length === 1 ? 'registro' : 'registros'})
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 font-semibold">
+                          Meta Esperada: <strong>85%</strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    {historicoOrdenado.length > 0 ? (
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart
+                            data={historicoOrdenado}
+                            margin={{ top: 15, right: 15, left: -20, bottom: 0 }}
+                          >
+                            <defs>
+                              <linearGradient id="curvaCumplimiento" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#FF4C4C" stopOpacity={0.35}/>
+                                <stop offset="95%" stopColor="#FF4C4C" stopOpacity={0.0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis 
+                              dataKey="periodo" 
+                              tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} 
+                              axisLine={false} 
+                              tickLine={false} 
+                            />
+                            <YAxis 
+                              domain={[0, 100]} 
+                              tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                              axisLine={false} 
+                              tickLine={false} 
+                            />
+                            <Tooltip 
+                              formatter={(value: any) => [`${value}%`, 'Cumplimiento']}
+                              contentStyle={{ 
+                                backgroundColor: '#0f172a', 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                color: '#fff', 
+                                fontSize: '12px' 
+                              }}
+                            />
+                            <ReferenceLine 
+                              y={85} 
+                              stroke="#10b981" 
+                              strokeDasharray="4 4" 
+                              label={{ value: 'Meta 85%', position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} 
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="cumplimiento" 
+                              stroke="#FF4C4C" 
+                              strokeWidth={3} 
+                              fillOpacity={1} 
+                              fill="url(#curvaCumplimiento)" 
+                              dot={{ fill: '#FF4C4C', stroke: '#fff', strokeWidth: 2, r: 5 }}
+                              activeDot={{ r: 7 }}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                        <p className="text-xs text-slate-500">
+                          Aún no hay puntos históricos guardados. Califica un indicador o pulsa <strong>"Cerrar Periodo"</strong> para iniciar la curva.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Indicadores Activos del Colaborador */}
+                  <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 className="text-base font-bold text-slate-800 mb-4">🎯 Mis Indicadores (KPIs)</h3>
+                    <div className="space-y-4">
+                      {miDesempeno.indicadores && miDesempeno.indicadores.length > 0 ? (
+                        miDesempeno.indicadores.map(ind => (
+                          <div key={ind.id} className="bg-slate-50/70 p-4 rounded-xl border border-slate-100">
+                            <div className="flex justify-between items-center text-sm mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-800">{ind.titulo}</span>
+                                <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full uppercase font-bold">
+                                  {ind.periodo || 'trimestral'}
+                                </span>
+                              </div>
+                              <span className="font-black text-slate-800">{ind.progreso}%</span>
+                            </div>
+                            {ind.descripcion && (
+                              <p className="text-[11px] text-slate-400 mb-2">{ind.descripcion}</p>
+                            )}
+                            <div className="flex items-center gap-4 text-[11px] text-slate-500 mb-2">
+                              <span>Meta: <strong>{ind.meta_esperada || 0} {ind.unidad_medida}</strong></span>
+                              <span>Actual: <strong>{ind.resultado_actual || 0} {ind.unidad_medida}</strong></span>
+                            </div>
+                            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-[#FF4C4C] to-red-600 rounded-full transition-all duration-500" 
+                                style={{ width: `${ind.progreso}%` }}
+                              />
+                            </div>
+                            {ind.feedback_lider && (
+                              <div className="mt-3 text-[11px] text-slate-600 bg-white p-3 rounded-lg border border-slate-200/70">
+                                <strong className="text-slate-800 font-semibold block mb-0.5">Feedback del líder:</strong>
+                                <p className="italic">{ind.feedback_lider}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">No tienes indicadores asignados actualmente.</p>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
-                <div className="space-y-5">
-                  {miDesempeno.indicadores?.map(ind => (<div key={ind.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm"><div className="flex justify-between text-sm mb-2"><span className="font-semibold text-slate-700">{ind.titulo}</span><span className="font-black text-slate-800">{ind.progreso}%</span></div><div className="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-[#FF4C4C] to-red-600 rounded-full" style={{ width: `${ind.progreso}%` }}></div></div></div>))}
+              );
+            })()}
+
+            {/* MODAL DE BLOQUEO OFICIAL DE PERIODO */}
+            {modalCorteAbierto && (() => {
+              const etiquetaSeleccionada = `${mesCorte} ${anioCorte}`;
+              const seleccionYaBloqueada = periodosBloqueados.some(
+                p => p.periodo.toLowerCase() === etiquetaSeleccionada.toLowerCase()
+              );
+
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                  <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 border border-slate-100 animate-in zoom-in-95 duration-200">
+                    <div className="flex justify-between items-center mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 bg-red-50 text-[#FF4C4C] rounded-xl text-base">🔒</span>
+                        <h3 className="text-base font-bold text-slate-800">Bloquear Periodo Oficial</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setModalCorteAbierto(false)}
+                        className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold hover:bg-slate-200 text-xs flex items-center justify-center transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                      Selecciona el mes, año y fecha efectiva para congelar el score de los <strong>{empleados.length} colaboradores</strong>.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                          Mes
+                        </label>
+                        <select
+                          value={mesCorte}
+                          onChange={(e) => setMesCorte(e.target.value)}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] font-semibold text-slate-800 cursor-pointer"
+                        >
+                          {MESES_ANIO.map((mes) => {
+                            const bloqueado = periodosBloqueados.some(
+                              p => p.periodo.toLowerCase() === `${mes} ${anioCorte}`.toLowerCase()
+                            );
+                            return (
+                              <option key={mes} value={mes} disabled={bloqueado}>
+                                {mes} {bloqueado ? '(🔒 Bloqueado)' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                          Año
+                        </label>
+                        <select
+                          value={anioCorte}
+                          onChange={(e) => {
+                            const nuevoAnio = Number(e.target.value);
+                            setAnioCorte(nuevoAnio);
+                            const primerDisponible = MESES_ANIO.find(
+                              m => !periodosBloqueados.some(p => p.periodo.toLowerCase() === `${m} ${nuevoAnio}`.toLowerCase())
+                            );
+                            if (primerDisponible) setMesCorte(primerDisponible);
+                          }}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] font-semibold text-slate-800 cursor-pointer"
+                        >
+                          {ANIOS_DISPONIBLES.map((anio) => (
+                            <option key={anio} value={anio}>
+                              {anio}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                          Fecha de Bloqueo
+                        </label>
+                        <input
+                          type="date"
+                          value={fechaCortePeriodo}
+                          onChange={(e) => setFechaCortePeriodo(e.target.value)}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] font-semibold text-slate-800 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {seleccionYaBloqueada && (
+                      <div className="mb-4 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl">
+                        ⚠️ El periodo <strong>{etiquetaSeleccionada}</strong> ya fue bloqueado. Elige otro mes disponible.
+                      </div>
+                    )}
+
+                    {/* Lista de Periodos Bloqueados */}
+                    <div className="mb-5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-2">
+                        Periodos Bloqueados ({periodosBloqueados.length})
+                      </span>
+                      {periodosBloqueados.length > 0 ? (
+                        <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+                          {periodosBloqueados.map((p) => (
+                            <div
+                              key={p.periodo}
+                              className="flex items-center justify-between bg-slate-50 border border-slate-200/80 px-3 py-2 rounded-xl text-xs"
+                            >
+                              <div>
+                                <span className="font-bold text-slate-800 block">{p.periodo}</span>
+                                <span className="text-[10px] text-slate-400">
+                                  {new Date(p.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} • {p.total} colab.
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                                🔒 Bloqueado
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200 text-center">
+                          Aún no hay periodos bloqueados.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setModalCorteAbierto(false)}
+                        className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition"
+                      >
+                        Cerrar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={ejecutarCorteOficial}
+                        disabled={ejecutandoCorte || seleccionYaBloqueada}
+                        className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {ejecutandoCorte ? 'Bloqueando...' : `🔒 Bloquear ${etiquetaSeleccionada}`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* MODAL DE INVITACIONES INTELIGENTES */}
+            {modalInvitarAbierto && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] border border-slate-100 animate-in zoom-in-95 duration-200">
+                  
+                  {/* Header del Modal */}
+                  <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/70 shrink-0">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">Invitar al Equipo</h3>
+                      <p className="text-xs text-slate-500">Selecciona los colaboradores que recibirán acceso</p>
+                    </div>
+                    <button 
+                      onClick={() => setModalInvitarAbierto(false)}
+                      className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold hover:bg-slate-200 flex items-center justify-center transition"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Barra de Selección Masiva */}
+                  <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
+                    <span className="text-xs text-slate-500 font-medium">
+                      {empleados.filter(e => e.email !== perfil?.email).length} colaboradores disponibles
+                    </span>
+                    <button 
+                      onClick={toggleSeleccionarTodos}
+                      className="text-xs font-bold text-[#FF4C4C] hover:underline"
+                    >
+                      {empleadosSeleccionadosParaInvitar.length === empleados.filter(e => e.email !== perfil?.email).length 
+                        ? 'Deseleccionar todos' 
+                        : 'Seleccionar todos'
+                      }
+                    </button>
+                  </div>
+
+                  {/* Lista scrolleable de empleados */}
+                  <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+                    <div className="space-y-3">
+                      {empleados.filter(e => e.email !== perfil?.email).map(emp => {
+                        const seleccionado = empleadosSeleccionadosParaInvitar.includes(emp.id);
+                        return (
+                          <label 
+                            key={emp.id} 
+                            className={`flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all ${
+                              seleccionado ? 'bg-red-50/50 border-[#FF4C4C]/40 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="shrink-0 ml-1">
+                              <input 
+                                type="checkbox" 
+                                checked={seleccionado}
+                                onChange={() => toggleSeleccionInvitacion(emp.id)}
+                                className="w-4 h-4 rounded border-slate-300 text-[#FF4C4C] focus:ring-[#FF4C4C] accent-[#FF4C4C] cursor-pointer"
+                              />
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm shrink-0">
+                              {emp.nombre.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-800 truncate">{emp.nombre}</p>
+                              <p className="text-xs text-slate-500 truncate">{emp.email} • {emp.puesto}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Footer del Modal con botón de confirmación */}
+                  <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
+                    <span className="text-sm font-bold text-slate-600">
+                      <span className="text-[#FF4C4C]">{empleadosSeleccionadosParaInvitar.length}</span> seleccionados
+                    </span>
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={() => setModalInvitarAbierto(false)}
+                        className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button 
+                        onClick={confirmarInvitacionMasiva}
+                        disabled={invitando || empleadosSeleccionadosParaInvitar.length === 0}
+                        className="bg-[#FF4C4C] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {invitando ? 'Procesando...' : `Invitar (${empleadosSeleccionadosParaInvitar.length})`}
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             )}
-            {/* MODAL DE INVITACIONES INTELIGENTES */}
-{modalInvitarAbierto && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 border border-slate-100">
-      
-     {/* Header del Modal */}
-      <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 shrink-0">
-        <div className="flex justify-between items-start mb-3">
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">Invitar Colaboradores</h2>
-            <p className="text-xs text-slate-500 mt-1">Selecciona quiénes recibirán acceso a la plataforma.</p>
-          </div>
-          <button 
-            onClick={() => setModalInvitarAbierto(false)}
-            className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold hover:bg-slate-300 transition-colors"
-          >
-            ✕
-          </button>
-        </div>
-        
-        {/* Nuevo control de Selección Masiva */}
-        <button 
-          onClick={toggleSeleccionarTodos}
-          className="text-xs font-bold text-[#FF4C4C] hover:underline"
-        >
-          {empleadosSeleccionadosParaInvitar.length === empleados.filter(e => e.email !== perfil?.email).length 
-            ? 'Deseleccionar todos' 
-            : 'Seleccionar todos'
-          }
-        </button>
-      </div>
-
-      {/* Lista scrolleable de empleados */}
-      <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
-        <div className="space-y-3">
-          {empleados.filter(e => e.email !== perfil?.email).map(emp => {
-            const seleccionado = empleadosSeleccionadosParaInvitar.includes(emp.id);
-            return (
-              <label 
-                key={emp.id} 
-                className={`flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all ${
-                  seleccionado ? 'bg-red-50/50 border-[#FF4C4C]/40 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <div className="shrink-0 ml-1">
-                  <input 
-                    type="checkbox" 
-                    checked={seleccionado}
-                    onChange={() => toggleSeleccionInvitacion(emp.id)}
-                    className="w-4 h-4 rounded border-slate-300 text-[#FF4C4C] focus:ring-[#FF4C4C] accent-[#FF4C4C] cursor-pointer"
-                  />
-                </div>
-                <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm shrink-0">
-                  {emp.nombre.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">{emp.nombre}</p>
-                  <p className="text-xs text-slate-500 truncate">{emp.email} • {emp.puesto}</p>
-                </div>
-              </label>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Footer del Modal con botón de confirmación */}
-      <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
-        <span className="text-sm font-bold text-slate-600">
-          <span className="text-[#FF4C4C]">{empleadosSeleccionadosParaInvitar.length}</span> seleccionados
-        </span>
-        <div className="flex gap-3">
-          <button 
-            onClick={() => setModalInvitarAbierto(false)}
-            className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-          >
-            Cancelar
-          </button>
-          <button 
-            onClick={confirmarInvitacionMasiva}
-            disabled={invitando || empleadosSeleccionadosParaInvitar.length === 0}
-            className="bg-[#FF4C4C] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {invitando ? 'Procesando...' : `Invitar (${empleadosSeleccionadosParaInvitar.length})`}
-          </button>
-        </div>
-      </div>
-
-    </div>
-  </div>
-)}
+            {empleadoViendoPerfil && (
+              <ModalPerfilColaborador 
+                emp={empleadoViendoPerfil} 
+                onClose={() => setEmpleadoViendoPerfil(null)} 
+              />  
+             )}
 
           </div>
         </main>
       </div>
     </div>
-  )
+  );
 }
+
+
 
 // ==========================================
 // COMPONENTES AUXILIARES
@@ -1340,12 +1803,20 @@ function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTar
             </div>
           </div>
 
-          <div className="text-right shrink-0">
+          <div className="text-right shrink-0 flex flex-col items-end">
             <span className={`text-2xl font-black tracking-tight leading-none ${colorDesempeno}`}>
               {emp.cumplimiento_general}%
             </span>
-            <span className="block text-[9px] uppercase font-bold text-slate-400 mt-0.5">Score</span>
+            <span className="block text-[9px] uppercase font-bold text-slate-400 mt-0.5 mb-2">Score</span>
+            <button 
+              type="button"
+              onClick={() => funciones.verPerfilCompleto?.(emp)}
+              className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1 border border-blue-100"
+            >
+              👁️ Ver Curva
+            </button>
           </div>
+
         </div>
 
         {/* Barra de Progreso Minimalista */}
@@ -2056,6 +2527,102 @@ function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Empleado, onC
           </div>
         </div>
 
+      </div>
+    </div>
+  );
+}
+function ModalPerfilColaborador({ emp, onClose }: { emp: Empleado, onClose: () => void }) {
+  const historicoOrdenado = [...(emp.historico || [])].sort(
+    (a, b) => new Date(a.fecha_corte).getTime() - new Date(b.fecha_corte).getTime()
+  );
+  const variacion = historicoOrdenado.length >= 2 
+    ? Number((historicoOrdenado[historicoOrdenado.length - 1].cumplimiento - historicoOrdenado[historicoOrdenado.length - 2].cumplimiento).toFixed(1)) 
+    : null;
+    const mediaHistorica = historicoOrdenado.length > 0
+    ? Math.round(historicoOrdenado.reduce((acc, curr) => acc + curr.cumplimiento, 0) / historicoOrdenado.length)
+    : 0;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 md:p-6 animate-in fade-in duration-200">
+      <div className="bg-[#F8F9FA] w-full max-w-5xl h-full max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+        
+        {/* Cabecera del Visor */}
+        <div className="px-6 md:px-8 py-4 bg-white border-b border-slate-200 flex justify-between items-center shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-black text-sm">
+              {emp.nombre.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 leading-tight">{emp.nombre}</h2>
+              <p className="text-xs text-slate-500 font-medium">{emp.puesto}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold hover:bg-slate-200 flex items-center justify-center transition">✕</button>
+        </div>
+
+        {/* Cuerpo Analítico */}
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="col-span-1 md:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+               <span className="text-[10px] font-black uppercase tracking-widest text-[#FF4C4C] block mb-1">Descripción del Cargo</span>
+               <p className="text-sm text-slate-600 italic">{emp.job_descripcion || "No hay una descripción registrada."}</p>
+            </div>
+            
+            <div className="bg-[#FFF5F5] p-6 rounded-3xl border border-[#FFEAEA] flex justify-between items-center">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Cumplimiento</span>
+                <span className="text-[10px] font-bold text-slate-500 block mt-1">Potencial: {emp.potencial_score === 3 ? '⭐ Alto' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}</span>
+              </div>
+              <div className="text-right">
+                <h3 className="text-5xl font-black text-[#FF4C4C]">{emp.cumplimiento_general}%</h3>
+                {variacion !== null && (
+                  <span className={`text-xs font-black px-2 py-0.5 rounded-full mt-1 inline-block ${variacion >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                    {variacion >= 0 ? `▲ +${variacion}%` : `▼ ${variacion}%`}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-sm font-bold text-slate-800 mb-4">📈 Evolución Histórica</h3>
+            {historicoOrdenado.length > 0 ? (
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={historicoOrdenado} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorCurvaAzul" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="periodo" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }} />
+                    <ReferenceLine 
+                      y={85} 
+                      stroke="#10b981" 
+                      strokeDasharray="4 4" 
+                      label={{ value: 'Meta 85%', position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} 
+                    />
+                    {mediaHistorica > 0 && (
+                      <ReferenceLine 
+                        y={mediaHistorica} 
+                        stroke="#f59e0b" 
+                        strokeDasharray="4 4" 
+                        label={{ value: `Media: ${mediaHistorica}%`, position: 'insideTopLeft', fill: '#d97706', fontSize: 10, fontWeight: 'bold' }} 
+                      />
+                    )}
+                    <Area type="monotone" dataKey="cumplimiento" stroke="#3b82f6" strokeWidth={3} fill="url(#colorCurvaAzul)" dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">Aún no hay cortes históricos para este colaborador.</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
