@@ -65,7 +65,57 @@ export interface Empleado {
   estado_acceso?: 'sin_invitar' | 'invitado' | 'activo';
   fecha_invitacion?: string | null;
   fecha_activacion?: string | null;
+  // Ficha: datos personales
+  tipo_documento?: string | null;
+  numero_documento?: string | null;
+  fecha_nacimiento?: string | null;
+  telefono?: string | null;
+  email_personal?: string | null;
+  // Ficha: datos laborales
+  fecha_ingreso?: string | null;
+  jefe_directo_id?: number | null;
+  sede?: string | null;
+  tipo_contrato?: TipoContrato | null;
+  modalidad?: Modalidad | null;
+  jornada?: Jornada | null;
+  centro_costo?: string | null;
   }
+
+// --- Catálogos de la ficha del colaborador (los valores coinciden con los CHECK de la base de datos) ---
+export const TIPOS_DOCUMENTO = ['Cédula de ciudadanía', 'Cédula de extranjería', 'Pasaporte', 'PPT', 'DNI', 'RUT', 'Otro'] as const;
+
+export type TipoContrato = 'indefinido' | 'fijo' | 'obra_labor' | 'aprendizaje' | 'practicas' | 'prestacion_servicios';
+export const TIPOS_CONTRATO: Record<TipoContrato, string> = {
+  indefinido: 'Término indefinido',
+  fijo: 'Término fijo',
+  obra_labor: 'Obra o labor',
+  aprendizaje: 'Aprendizaje',
+  practicas: 'Prácticas',
+  prestacion_servicios: 'Prestación de servicios',
+};
+
+export type Modalidad = 'presencial' | 'remoto' | 'hibrido';
+export const MODALIDADES: Record<Modalidad, string> = { presencial: 'Presencial', remoto: 'Remoto', hibrido: 'Híbrido' };
+
+export type Jornada = 'completa' | 'parcial' | 'por_horas';
+export const JORNADAS: Record<Jornada, string> = { completa: 'Tiempo completo', parcial: 'Medio tiempo', por_horas: 'Por horas' };
+
+// --- Compensación (tabla aparte, solo Admin: ver migración 20261116) ---
+export type Periodicidad = 'mensual' | 'anual' | 'por_hora';
+export const PERIODICIDADES: Record<Periodicidad, string> = { mensual: 'Mensual', anual: 'Anual', por_hora: 'Por hora' };
+export const MONEDAS = ['COP', 'CLP', 'MXN', 'PEN', 'ARS', 'USD', 'EUR'] as const;
+
+export interface Compensacion {
+  id: number;
+  empleado_id: number;
+  empresa_id: number;
+  salario: number;
+  moneda: string;
+  periodicidad: Periodicidad;
+  fecha_vigencia: string;
+  motivo: string | null;
+  created_at: string;
+}
 
 // Un colaborador que sale de la organización no se borra: queda 'desvinculado' para conservar su histórico.
 export type EstadoContratacion = 'activo' | 'desvinculado';

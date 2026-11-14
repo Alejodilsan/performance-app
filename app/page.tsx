@@ -8,13 +8,14 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 import ExcelJS from 'exceljs'
-import { estaActivo, type TipoPerfil, type Puesto, type Area, type Plan, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta } from '@/lib/tipos'
-import { ModalEditarColaborador, type DatosEdicionColaborador } from '@/components/ModalEditarColaborador'
+import { estaActivo, type TipoPerfil, type Puesto, type Area, type Plan, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion } from '@/lib/tipos'
+import { PanelColaborador, type OpcionesGuardado } from '@/components/PanelColaborador'
+import { payloadEmpleado, parsearMonto, type DatosColaborador, type DatosCompensacion } from '@/lib/colaboradores'
 import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColaborador'
 import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
 import { ArbolAreas } from '@/components/ArbolAreas'
 import { ModalAccesos } from '@/components/ModalAccesos'
-import { otorgarAccesos, sincronizarRol, revocarAcceso, restaurarAcceso, debeCambiarClave } from '@/lib/accesos'
+import { otorgarAccesos, sincronizarRol, type ResultadoOtorgar, revocarAcceso, restaurarAcceso, debeCambiarClave } from '@/lib/accesos'
 import { construirJerarquia, filtrarJerarquia, idsDescendientes, coincideEmpleado, normalizarTexto } from '@/lib/jerarquia'
 import { BotonLateral } from '@/components/BotonLateral'
 import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
@@ -29,6 +30,9 @@ export default function DashboardPerformance() {
   const [empleados, setEmpleados] = useState<Empleado[]>([]) // solo activos
   const [empleadosDesvinculados, setEmpleadosDesvinculados] = useState<Empleado[]>([])
   const [empleadoEditando, setEmpleadoEditando] = useState<Empleado | null>(null)
+  const [compensacionesEditando, setCompensacionesEditando] = useState<Compensacion[] | null>(null) // null = cargando
+  const [monedaPreferida, setMonedaPreferida] = useState('COP')
+  const [accesoRecienCreado, setAccesoRecienCreado] = useState<ResultadoOtorgar | null>(null)
   const [empleadoDesvinculando, setEmpleadoDesvinculando] = useState<Empleado | null>(null)
   const [busqueda, setBusqueda] = useState('') // buscador del header: filtra áreas y colaboradores
   const [areas, setAreas] = useState<Area[]>([])
@@ -75,7 +79,6 @@ export default function DashboardPerformance() {
   const [equipoLiderado, setEquipoLiderado] = useState<Empleado[]>([])
   const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_equipo' | 'mi_perfil' | 'evaluaciones'>('tablero')
 
-  const [nombre, setNombre] = useState(''); const [puesto, setPuesto] = useState(''); const [emailEmpleado, setEmailEmpleado] = useState('');
   const [nuevaAreaNombre, setNuevaAreaNombre] = useState(''); const [nuevaAreaPadre, setNuevaAreaPadre] = useState<string>("");
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
   const [nuevosIndicadores, setNuevosIndicadores] = useState<{ [key: number]: string }>({});
@@ -92,10 +95,6 @@ export default function DashboardPerformance() {
 
   // Modal de Creación Individual de Colaborador
   const [modalNuevoEmpAbierto, setModalNuevoEmpAbierto] = useState(false);
-  const [puestoIdEmpleado, setPuestoIdEmpleado] = useState<string>('');
-  const [areaIdEmpleado, setAreaIdEmpleado] = useState<string>('');
-  const [tipoPerfilEmpleado, setTipoPerfilEmpleado] = useState<TipoPerfil>('Empleado');
-  const [guardandoEmpleado, setGuardandoEmpleado] = useState(false);
 
   // Bandeja de Asignación en Bloque (Sin Área)
   const [seleccionadosSinArea, setSeleccionadosSinArea] = useState<number[]>([]);
@@ -185,6 +184,12 @@ const toggleArea = (id: number) => {
       .eq('empresa_id', perfilDeAcceso?.empresa_id)
       .order('nombre', { ascending: true });
     if (puestosData) setPuestos(puestosData);
+
+    if (perfilDeAcceso.rol === 'admin') {
+      const { data: ultimaComp } = await supabase.from('compensaciones').select('moneda')
+        .eq('empresa_id', perfilDeAcceso.empresa_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (ultimaComp?.moneda) setMonedaPreferida(ultimaComp.moneda);
+    }
   }
 
   async function identificarRolEmpleado(email: string) {
@@ -561,76 +566,69 @@ const toggleArea = (id: number) => {
     }
   }
 
-  async function agregarEmpleado(e: React.FormEvent) {
-    e.preventDefault();
-    const emailLimpio = emailEmpleado.trim().toLowerCase();
-    if (!nombre.trim() || !emailLimpio || !puestoIdEmpleado) {
-      alert("Nombre, Email y Puesto de trabajo son obligatorios.");
-      return;
-    }
+  // Crea un puesto desde el panel del colaborador y lo deja disponible de inmediato
+  async function crearPuestoRapido(nombrePuesto: string): Promise<Puesto | null> {
+    const nombreLimpio = nombrePuesto.trim();
+    const existente = puestos.find(p => normalizarTexto(p.nombre) === normalizarTexto(nombreLimpio));
+    if (existente) return existente;
+    const { data, error } = await supabase.from('puestos')
+      .insert([{ nombre: nombreLimpio, empresa_id: perfil?.empresa_id }]).select().single();
+    if (error || !data) { alert('Error al crear puesto: ' + (error?.message || 'desconocido')); return null; }
+    setPuestos(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')));
+    return data;
+  }
 
-    if (empleados.some(emp => emp.email.trim().toLowerCase() === emailLimpio)) {
-      alert(`Ya existe un colaborador registrado con el correo ${emailLimpio}.`);
-      return;
-    }
-    const exColaborador = empleadosDesvinculados.find(emp => emp.email.trim().toLowerCase() === emailLimpio);
-    if (exColaborador) {
-      alert(`${exColaborador.nombre} (${emailLimpio}) ya estuvo en la organización y está desvinculado.\n\nPara recontratarlo, usa "Reactivar" en la sección de Colaboradores desvinculados: así conserva su histórico.`);
-      return;
-    }
+  // Registra un salario nuevo en el historial (tabla protegida: solo Admin)
+  async function registrarCompensacion(empleadoId: number, comp: DatosCompensacion): Promise<boolean> {
+    const monto = parsearMonto(comp.salario);
+    if (!comp.salario.trim() || monto === null) return true; // sin cambios de salario
+    const { error } = await supabase.from('compensaciones').insert([{
+      empleado_id: empleadoId, empresa_id: perfil?.empresa_id, salario: monto, moneda: comp.moneda,
+      periodicidad: comp.periodicidad, fecha_vigencia: comp.fecha_vigencia, motivo: comp.motivo.trim() || null,
+    }]);
+    if (error) { alertaErrorSupabase('guardar el salario', error); return false; }
+    setMonedaPreferida(comp.moneda);
+    return true;
+  }
 
-    const areaSeleccionada = areaIdEmpleado ? areas.find(a => a.id === parseInt(areaIdEmpleado)) : null;
-
-    // Validación estricta de Líder de Área
-    if (tipoPerfilEmpleado === 'Líder de Área') {
-      if (!areaSeleccionada) {
-        alert("⚠️ Para asignar el perfil 'Líder de Área', debes seleccionar un Área.");
-        return;
-      }
-      if (areaSeleccionada.lider_id) {
-        const liderActual = empleados.find(emp => emp.id === areaSeleccionada.lider_id);
-        alert(`⛔ Bloqueado: El área "${areaSeleccionada.nombre}" ya tiene un líder asignado (${liderActual?.nombre || 'Asignado'}).`);
-        return;
-      }
+  async function crearColaborador(datos: DatosColaborador, comp: DatosCompensacion, opciones: OpcionesGuardado): Promise<boolean> {
+    const areaSeleccionada = datos.area_id ? areas.find(a => a.id === parseInt(datos.area_id)) : undefined;
+    if (datos.tipo_perfil === 'Líder de Área' && areaSeleccionada?.lider_id) {
+      const liderActual = empleados.find(emp => emp.id === areaSeleccionada.lider_id);
+      alert(`⛔ El área "${areaSeleccionada.nombre}" ya tiene un líder asignado (${liderActual?.nombre || 'Asignado'}).`);
+      return false;
     }
-
-    const puestoObj = puestos.find(p => p.id === parseInt(puestoIdEmpleado));
-    setGuardandoEmpleado(true);
 
     const { data: nuevoEmp, error } = await supabase
       .from('empleados')
       .insert([{
-        nombre: nombre.trim(),
-        email: emailLimpio,
-        puesto: puestoObj?.nombre || 'Colaborador',
-        puesto_id: puestoObj?.id || null,
-        area_id: areaSeleccionada ? areaSeleccionada.id : null,
-        tipo_perfil: tipoPerfilEmpleado,
+        ...payloadEmpleado(datos, puestos),
+        email: datos.email.trim().toLowerCase(),
         cumplimiento_general: 0,
-        empresa_id: perfil?.empresa_id
+        empresa_id: perfil?.empresa_id,
       }])
       .select()
       .single();
+    if (error || !nuevoEmp) { alertaErrorSupabase('registrar al colaborador', error || { message: 'sin respuesta' }); return false; }
 
-    if (error) {
-      setGuardandoEmpleado(false);
-      alert("Error al registrar colaborador: " + error.message);
-      return;
-    }
-
-    // Si es Líder de Área, vincularlo automáticamente como lider_id del área
-    if (tipoPerfilEmpleado === 'Líder de Área' && areaSeleccionada && nuevoEmp) {
+    // Si es Líder de Área, se vincula como líder del área
+    if (datos.tipo_perfil === 'Líder de Área' && areaSeleccionada) {
       await supabase.from('areas').update({ lider_id: nuevoEmp.id }).eq('id', areaSeleccionada.id);
     }
 
-    setGuardandoEmpleado(false);
-    setNombre('');
-    setEmailEmpleado('');
-    setPuestoIdEmpleado('');
-    setAreaIdEmpleado('');
-    setTipoPerfilEmpleado('Empleado');
-    setModalNuevoEmpAbierto(false);
+    // El colaborador ya quedó creado: los pasos siguientes avisan si fallan, pero no lo deshacen
+    await registrarCompensacion(nuevoEmp.id, comp);
+    if (opciones.darAcceso) {
+      try {
+        const resultado = await otorgarAccesos([nuevoEmp.id]);
+        setAccesoRecienCreado(resultado);
+      } catch (e) {
+        alert(`${nuevoEmp.nombre} quedó registrado, pero no se pudo generar su acceso:\n${mensajeDeError(e)}\n\nPuedes hacerlo luego desde "Dar Acceso".`);
+      }
+    }
+
     recargarDatos();
+    return true;
   }
 
   async function asignarAreaEnBloque() {
@@ -673,49 +671,44 @@ const toggleArea = (id: number) => {
 
   // Mensaje claro si la columna de estado todavía no existe en Supabase
   function alertaErrorSupabase(accion: string, error: { message: string }) {
-    const faltaMigracion = /estado_contratacion|fecha_desvinculacion|motivo_desvinculacion/.test(error.message);
+    const faltaMigracion = /column|relation|schema cache/i.test(error.message) &&
+      /estado_contratacion|desvinculacion|compensaciones|tipo_documento|numero_documento|fecha_ingreso|jefe_directo|sede|tipo_contrato|modalidad|jornada|centro_costo|email_personal|fecha_nacimiento|telefono/.test(error.message);
+    const documentoDuplicado = /empleados_documento_unico_idx/.test(error.message);
     alert(faltaMigracion
-      ? `No se pudo ${accion}: falta aplicar la migración "estado_contratacion" en Supabase (ver supabase/migrations).`
-      : `No se pudo ${accion}: ${error.message}`);
+      ? `No se pudo ${accion}: falta aplicar una migración en Supabase (ver carpeta supabase/migrations).`
+      : documentoDuplicado
+        ? `No se pudo ${accion}: ese documento ya está registrado para otro colaborador.`
+        : `No se pudo ${accion}: ${error.message}`);
   }
 
-  async function guardarEdicionColaborador(emp: Empleado, datos: DatosEdicionColaborador): Promise<boolean> {
+  async function guardarEdicionColaborador(emp: Empleado, datos: DatosColaborador, comp: DatosCompensacion): Promise<boolean> {
     const cambiaTipoPerfil = (emp.tipo_perfil || 'Empleado') !== datos.tipo_perfil;
     if (cambiaTipoPerfil && emp.email.trim().toLowerCase() === perfil?.email?.trim().toLowerCase()) {
       alert('⛔ No puedes cambiar tu propio tipo de perfil: perderías tus permisos de administración. Pídeselo a otro Admin.');
       return false;
     }
-    const areaNueva = datos.area_id ? areas.find(a => a.id === datos.area_id) : undefined;
+    const payload = payloadEmpleado(datos, puestos);
+    const areaNueva = payload.area_id ? areas.find(a => a.id === payload.area_id) : undefined;
     const areasQueLidera = areas.filter(a => a.lider_id === emp.id);
 
     // Validación de Líder de Área (mismas reglas que al crear)
-    if (datos.tipo_perfil === 'Líder de Área') {
-      if (!areaNueva) { alert("⚠️ Para el perfil 'Líder de Área' debes seleccionar un Área."); return false; }
-      if (areaNueva.lider_id && areaNueva.lider_id !== emp.id) {
-        const liderActual = empleados.find(e => e.id === areaNueva.lider_id);
-        alert(`⛔ El área "${areaNueva.nombre}" ya tiene un líder asignado (${liderActual?.nombre || 'Asignado'}).`);
-        return false;
-      }
+    if (datos.tipo_perfil === 'Líder de Área' && areaNueva?.lider_id && areaNueva.lider_id !== emp.id) {
+      const liderActual = empleados.find(e => e.id === areaNueva.lider_id);
+      alert(`⛔ El área "${areaNueva.nombre}" ya tiene un líder asignado (${liderActual?.nombre || 'Asignado'}).`);
+      return false;
     }
 
     // Áreas que pierden a su líder: deja de ser 'Líder de Área', o se mueve fuera del área que lideraba
     const dejaDeSerLider = emp.tipo_perfil === 'Líder de Área' && datos.tipo_perfil !== 'Líder de Área'
       && datos.tipo_perfil !== 'Manager' && datos.tipo_perfil !== 'Admin';
     const areasQuePierdenLider = areasQueLidera.filter(a =>
-      dejaDeSerLider || (a.id === emp.area_id && a.id !== datos.area_id)
+      dejaDeSerLider || (a.id === emp.area_id && a.id !== payload.area_id)
     );
     if (areasQuePierdenLider.length > 0 && !window.confirm(
       `${emp.nombre} dejará de liderar: ${areasQuePierdenLider.map(a => a.nombre).join(', ')}.\n\n¿Continuar?`
     )) return false;
 
-    const puestoObj = puestos.find(p => p.id === datos.puesto_id);
-    const { error } = await supabase.from('empleados').update({
-      nombre: datos.nombre,
-      puesto: puestoObj?.nombre || emp.puesto,
-      puesto_id: datos.puesto_id,
-      tipo_perfil: datos.tipo_perfil,
-      area_id: datos.area_id,
-    }).eq('id', emp.id);
+    const { error } = await supabase.from('empleados').update(payload).eq('id', emp.id);
     if (error) { alertaErrorSupabase('guardar los cambios', error); return false; }
 
     if (areasQuePierdenLider.length > 0) {
@@ -724,6 +717,8 @@ const toggleArea = (id: number) => {
     if (datos.tipo_perfil === 'Líder de Área' && areaNueva && areaNueva.lider_id !== emp.id) {
       await supabase.from('areas').update({ lider_id: emp.id }).eq('id', areaNueva.id);
     }
+
+    await registrarCompensacion(emp.id, comp);
 
     // El tipo de perfil define los permisos: si ya tiene cuenta, se actualiza su rol de acceso
     if (cambiaTipoPerfil && emp.user_id) {
@@ -735,6 +730,15 @@ const toggleArea = (id: number) => {
 
     recargarDatos();
     return true;
+  }
+
+  // Abre el panel de edición y, si es Admin, carga el historial de salarios
+  async function abrirEdicionColaborador(emp: Empleado) {
+    setEmpleadoEditando(emp);
+    setCompensacionesEditando(null);
+    const { data, error } = await supabase.from('compensaciones').select('*')
+      .eq('empleado_id', emp.id).order('fecha_vigencia', { ascending: false }).order('created_at', { ascending: false });
+    setCompensacionesEditando(error ? [] : (data as Compensacion[]));
   }
 
   async function desvincularColaborador(emp: Empleado, fecha: string, motivo: string): Promise<boolean> {
@@ -1154,7 +1158,7 @@ const toggleArea = (id: number) => {
     eliminarIndicador, actualizarDescripcionPuesto,
     guardarEvaluacionPotencial, guardarFeedbackKPI,verPerfilCompleto: (emp) => setEmpleadoViendoPerfil(emp),
     ...(esAdmin && {
-      editarColaborador: (emp: Empleado) => setEmpleadoEditando(emp),
+      editarColaborador: (emp: Empleado) => { abrirEdicionColaborador(emp); },
       desvincularColaborador: (emp: Empleado) => setEmpleadoDesvinculando(emp),
     }),
   };
@@ -1554,17 +1558,24 @@ const toggleArea = (id: number) => {
                   />
                 )}
 
-                {/* Modales de edición / desvinculación */}
-                {esAdmin && empleadoEditando && (
-                  <ModalEditarColaborador
-                    key={empleadoEditando.id}
-                    emp={empleadoEditando}
+                {/* Panel lateral: alta y edición de colaboradores (ficha completa) */}
+                {esAdmin && (modalNuevoEmpAbierto || empleadoEditando) && (
+                  <PanelColaborador
+                    key={empleadoEditando ? `editar-${empleadoEditando.id}` : 'crear'}
+                    modo={empleadoEditando ? 'editar' : 'crear'}
+                    emp={empleadoEditando ?? undefined}
                     puestos={puestos}
                     areas={areas}
+                    activos={empleados}
+                    desvinculados={empleadosDesvinculados}
                     roles={ROLES_DISPONIBLES}
-                    onClose={() => setEmpleadoEditando(null)}
-                    onSave={guardarEdicionColaborador}
+                    monedaPorDefecto={monedaPreferida}
+                    compensaciones={empleadoEditando ? compensacionesEditando : undefined}
+                    onCrearPuesto={crearPuestoRapido}
+                    onGuardar={(datos, comp, opciones) =>
+                      empleadoEditando ? guardarEdicionColaborador(empleadoEditando, datos, comp) : crearColaborador(datos, comp, opciones)}
                     onDesvincular={(emp) => setEmpleadoDesvinculando(emp)}
+                    onClose={() => { setEmpleadoEditando(null); setModalNuevoEmpAbierto(false); }}
                   />
                 )}
                 {esAdmin && empleadoDesvinculando && (
@@ -1576,63 +1587,14 @@ const toggleArea = (id: number) => {
                     onConfirm={desvincularColaborador}
                   />
                 )}
-
-                {/* Modal de Creación Individual */}
-                  {esAdmin && modalNuevoEmpAbierto && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
-                    <form onSubmit={agregarEmpleado} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-100 space-y-4">
-                      <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                        <h3 className="text-base font-bold text-slate-800">Registrar Nuevo Colaborador</h3>
-                        <button type="button" onClick={() => setModalNuevoEmpAbierto(false)} className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold text-xs">✕</button>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Nombre Completo *</label>
-                        <input className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={nombre} onChange={e => setNombre(e.target.value)} required />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Correo Corporativo *</label>
-                        <input type="email" className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={emailEmpleado} onChange={e => setEmailEmpleado(e.target.value)} required />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Puesto de Trabajo *</label>
-                          <select className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={puestoIdEmpleado} onChange={e => setPuestoIdEmpleado(e.target.value)} required>
-                            <option value="">-- Seleccionar --</option>
-                            {puestos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Tipo de Perfil *</label>
-                          <select className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={tipoPerfilEmpleado} onChange={e => setTipoPerfilEmpleado(e.target.value as TipoPerfil)}>
-                            {ROLES_DISPONIBLES.map(r => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Área Asignada (Opcional)</label>
-                        <select className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={areaIdEmpleado} onChange={e => setAreaIdEmpleado(e.target.value)}>
-                          <option value="">-- Dejar sin área (Pendiente) --</option>
-                          {areas.map(a => (
-                            <option key={a.id} value={a.id}>
-                              {a.nombre} {a.lider_id ? '(Con líder)' : '(Sin líder)'}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex justify-end gap-2 pt-2">
-                        <button type="button" onClick={() => setModalNuevoEmpAbierto(false)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
-                        <button type="submit" disabled={guardandoEmpleado} className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl shadow-sm disabled:opacity-50">
-                          {guardandoEmpleado ? 'Guardando...' : 'Guardar Colaborador'}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
+                {/* Credenciales del colaborador recién creado con "Dar acceso ahora" */}
+                {esAdmin && accesoRecienCreado && (
+                  <ModalAccesos
+                    candidatos={[]}
+                    resultadoInicial={accesoRecienCreado}
+                    onOtorgar={otorgarAccesos}
+                    onClose={() => setAccesoRecienCreado(null)}
+                  />
                 )}
               </div>
             )}

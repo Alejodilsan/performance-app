@@ -8,16 +8,18 @@ interface Props {
   candidatos: Empleado[];
   onClose: () => void;
   onOtorgar: (empleadoIds: number[]) => Promise<ResultadoOtorgar>;
+  /** Si viene, el modal abre directamente en el paso de credenciales (p. ej. tras crear un colaborador con acceso). */
+  resultadoInicial?: ResultadoOtorgar;
 }
 
 type Filtro = 'sin_invitar' | 'invitado' | 'activo' | 'todos';
 
-export function ModalAccesos({ candidatos, onClose, onOtorgar }: Props) {
+export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial }: Props) {
   const [filtro, setFiltro] = useState<Filtro>(candidatos.some(e => estadoDe(e) === 'sin_invitar') ? 'sin_invitar' : 'todos');
   // Por defecto: los que todavía no tienen acceso
   const [seleccion, setSeleccion] = useState<number[]>(candidatos.filter(e => estadoDe(e) === 'sin_invitar').map(e => e.id));
   const [procesando, setProcesando] = useState(false);
-  const [resultado, setResultado] = useState<ResultadoOtorgar | null>(null);
+  const [resultado, setResultado] = useState<ResultadoOtorgar | null>(resultadoInicial ?? null);
   const [guardadas, setGuardadas] = useState(false); // ¿el admin ya copió o descargó las claves?
   const [copiadoId, setCopiadoId] = useState<number | 'todas' | null>(null);
 
