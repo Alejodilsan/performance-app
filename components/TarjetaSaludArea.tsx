@@ -19,6 +19,11 @@ interface PropsTarjetaSaludArea {
   // Solo Admin
   renombrarArea?: (aid: number, nombre: string) => Promise<boolean>;
   eliminarArea?: (area: Area) => Promise<void>;
+  // Jerarquía y búsqueda
+  ruta?: Area[];                    // ancestros, de la raíz al padre
+  opcionesPadre?: Area[];           // áreas válidas para "Depende de" (sin sí misma ni sus sub-áreas)
+  empleadosVisibles?: Empleado[];   // si se está buscando: solo los colaboradores que coinciden
+  atenuada?: boolean;               // se muestra solo como contexto de un resultado de búsqueda
  }
 
 
@@ -37,7 +42,13 @@ export function TarjetaSaludArea({
   puedeEditarEmpleado,
   renombrarArea,
   eliminarArea,
+  ruta = [],
+  opcionesPadre,
+  empleadosVisibles,
+  atenuada = false,
 }: PropsTarjetaSaludArea) {
+  const listaColaboradores = empleadosVisibles ?? empleadosArea;
+  const filtrando = empleadosVisibles !== undefined && empleadosVisibles.length !== empleadosArea.length;
   const [editandoNombre, setEditandoNombre] = useState(false);
   const [nombreEditado, setNombreEditado] = useState(area.nombre);
 
@@ -76,13 +87,29 @@ export function TarjetaSaludArea({
   const liderActual = todosLosEmpleados.find(e => e.id === area.lider_id);
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md">
+    <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md hover:opacity-100 ${
+      ruta.length === 0 ? 'border-slate-300/80' : 'border-slate-200/80'
+    } ${atenuada ? 'opacity-60' : ''}`}>
       {/* 1. CABECERA EJECUTIVA DEL ÁREA */}
       <div className="p-5 md:p-6 bg-white">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          
+
           {/* Identidad del Área & Líder */}
           <div className="space-y-1">
+            {/* Ruta jerárquica: de dónde cuelga esta área */}
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 flex-wrap">
+              {ruta.length === 0 ? (
+                <span className="text-slate-500">Área principal</span>
+              ) : (
+                ruta.map((ancestro, i) => (
+                  <span key={ancestro.id} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-slate-300">›</span>}
+                    <span>{ancestro.nombre}</span>
+                  </span>
+                ))
+              )}
+              {ruta.length > 0 && <span className="text-slate-300">›</span>}
+            </p>
             <div className="flex items-center gap-3 flex-wrap">
               {editandoNombre ? (
                 <div className="flex items-center gap-1.5">
@@ -214,7 +241,7 @@ export function TarjetaSaludArea({
                   onChange={(e) => asignarPadreArea(area.id, e.target.value)}
                 >
                   <option value="">(Principal)</option>
-                  {todasLasAreas.filter(a => a.id !== area.id).map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
+                  {(opcionesPadre ?? todasLasAreas.filter(a => a.id !== area.id)).map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
                 </select>
               ) : (
                 <span className="text-xs font-semibold text-slate-700">
@@ -232,7 +259,11 @@ export function TarjetaSaludArea({
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <span>{estaAbierta ? 'Ocultar Colaboradores' : `Ver ${total} Colaboradores`}</span>
+            <span>
+              {estaAbierta
+                ? 'Ocultar Colaboradores'
+                : filtrando ? `Ver ${listaColaboradores.length} de ${total} Colaboradores` : `Ver ${total} Colaboradores`}
+            </span>
             <span className="text-[10px]">{estaAbierta ? '▲' : '▼'}</span>
           </button>
         </div>
@@ -241,9 +272,14 @@ export function TarjetaSaludArea({
       {/* 4. LISTA DE COLABORADORES (SOLO VISIBLE SI SE EXPANDE) */}
       {estaAbierta && (
         <div className="p-5 md:p-6 bg-slate-50/50 border-t border-slate-200/80 animate-in slide-in-from-top-2">
-          {empleadosArea.length > 0 ? (
+          {filtrando && (
+            <p className="text-[11px] text-slate-500 mb-3">
+              Mostrando {listaColaboradores.length} de {total} colaboradores que coinciden con la búsqueda.
+            </p>
+          )}
+          {listaColaboradores.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {empleadosArea.map(emp => (
+              {listaColaboradores.map(emp => (
                 <TarjetaEmpleado
                   key={emp.id}
                   emp={emp}
@@ -256,7 +292,7 @@ export function TarjetaSaludArea({
             </div>
           ) : (
             <p className="text-center text-xs text-slate-400 italic py-6">
-              No hay colaboradores asignados a esta área todavía.
+              {filtrando ? 'Ningún colaborador de esta área coincide con la búsqueda.' : 'No hay colaboradores asignados a esta área todavía.'}
             </p>
           )}
         </div>

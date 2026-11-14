@@ -12,6 +12,8 @@ import { estaActivo, type TipoPerfil, type Puesto, type Area, type Plan, type Ev
 import { ModalEditarColaborador, type DatosEdicionColaborador } from '@/components/ModalEditarColaborador'
 import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColaborador'
 import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
+import { ArbolAreas } from '@/components/ArbolAreas'
+import { construirJerarquia, filtrarJerarquia, idsDescendientes, coincideEmpleado, normalizarTexto } from '@/lib/jerarquia'
 import { BotonLateral } from '@/components/BotonLateral'
 import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
 import { construirArbol, NodoOrganigrama } from '@/components/Organigrama'
@@ -25,6 +27,7 @@ export default function DashboardPerformance() {
   const [empleadosDesvinculados, setEmpleadosDesvinculados] = useState<Empleado[]>([])
   const [empleadoEditando, setEmpleadoEditando] = useState<Empleado | null>(null)
   const [empleadoDesvinculando, setEmpleadoDesvinculando] = useState<Empleado | null>(null)
+  const [busqueda, setBusqueda] = useState('') // buscador del header: filtra áreas y colaboradores
   const [areas, setAreas] = useState<Area[]>([])
   const [evaluaciones, setEvaluaciones] = useState<Evaluacion[]>([])
   const [miDesempeno, setMiDesempeno] = useState<Empleado | null>(null)
@@ -647,7 +650,17 @@ const toggleArea = (id: number) => {
       recargarDatos();
     }
   }
-  async function asignarPadreArea(aid: number, pid: string) { const npid = pid === "" ? null : parseInt(pid); if (npid === aid) return; await supabase.from('areas').update({ parent_id: npid }).eq('id', aid); recargarDatos(); }
+  async function asignarPadreArea(aid: number, pid: string) {
+    const npid = pid === "" ? null : parseInt(pid);
+    if (npid === aid) return;
+    // Evita ciclos: un área no puede depender de una de sus propias sub-áreas
+    if (npid !== null && idsDescendientes(aid, areas).has(npid)) {
+      alert('⛔ Un área no puede depender de una de sus propias sub-áreas.');
+      return;
+    }
+    await supabase.from('areas').update({ parent_id: npid }).eq('id', aid);
+    recargarDatos();
+  }
   async function asignarLiderArea(aid: number, lid: string) { await supabase.from('areas').update({ lider_id: lid === "" ? null : parseInt(lid) }).eq('id', aid); recargarDatos(); }
   async function asignarAreaEmpleado(eid: number, aid: string) { await supabase.from('empleados').update({ area_id: aid === "" ? null : parseInt(aid) }).eq('id', eid); recargarDatos(); }
 
@@ -1095,6 +1108,33 @@ async function confirmarInvitacionMasiva() {
   // Áreas visibles en Tablero y Organigrama
   const areasVisibles = esManager ? areasCascadaManager : areas;
 
+  // Árbol jerárquico de áreas (según "Depende de") y su versión filtrada por el buscador
+  const consultaBusqueda = normalizarTexto(busqueda);
+  const jerarquiaAreas = useMemo(() => construirJerarquia(areasVisibles), [areasVisibles]);
+  const resultadoBusqueda = useMemo(
+    () => consultaBusqueda ? filtrarJerarquia(jerarquiaAreas, empleados, consultaBusqueda) : null,
+    [jerarquiaAreas, empleados, consultaBusqueda]
+  );
+
+  // Áreas válidas para "Depende de": todas menos ella misma y sus sub-áreas (evita ciclos)
+  const opcionesPadrePorArea = useMemo(() => {
+    const mapa = new Map<number, Area[]>();
+    areas.forEach(area => {
+      const excluidas = idsDescendientes(area.id, areas);
+      mapa.set(area.id, areas.filter(a => a.id !== area.id && !excluidas.has(a.id)));
+    });
+    return mapa;
+  }, [areas]);
+
+  const puedeBuscar = esAdmin || esAuditor || esManager || esLider;
+  function cambiarBusqueda(texto: string) {
+    setBusqueda(texto);
+    // La búsqueda se ve en el tablero (o en Mi Equipo para líderes): llevamos al usuario ahí
+    if (texto && vista !== 'tablero' && vista !== 'mi_equipo') {
+      setVista(esAdmin || esAuditor || esManager ? 'tablero' : 'mi_equipo');
+    }
+  }
+
   const metricasBI = useMemo(() => {
     const total = dataParaMetricas.length;
     const prom = total > 0 ? Math.round(dataParaMetricas.reduce((a, b) => a + b.cumplimiento_general, 0) / total) : 0;
@@ -1196,10 +1236,24 @@ async function confirmarInvitacionMasiva() {
           </h1>
           
           <div className="flex items-center gap-4">
-            {/* Buscador ficticio para igualar diseño */}
-            <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm text-slate-400">
-               <span className="mr-2">🔍</span> Buscar...
-            </div>
+            {/* Buscador: filtra áreas y colaboradores */}
+            {puedeBuscar && (
+              <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm focus-within:border-[#FF4C4C] focus-within:bg-white transition-colors">
+                <span className="mr-2 text-slate-400">🔍</span>
+                <input
+                  type="search"
+                  value={busqueda}
+                  onChange={e => cambiarBusqueda(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Escape') setBusqueda(''); }}
+                  placeholder="Buscar área o colaborador..."
+                  aria-label="Buscar área o colaborador"
+                  className="bg-transparent outline-none text-slate-700 placeholder:text-slate-400 w-56 [&::-webkit-search-cancel-button]:hidden"
+                />
+                {busqueda && (
+                  <button type="button" onClick={() => setBusqueda('')} className="ml-1 text-slate-400 hover:text-slate-700 text-xs" aria-label="Limpiar búsqueda">✕</button>
+                )}
+              </div>
+            )}
             {esAuditor && (
               <span className="text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1 rounded-full">
                 👁️ Modo Auditoría (Solo Lectura)
@@ -1362,7 +1416,7 @@ async function confirmarInvitacionMasiva() {
 
                     {/* Bandeja de Pendientes de Estructura Organizacional */}
                     {(() => {
-                      const sinArea = empleados.filter(e => !e.area_id);
+                      const sinArea = empleados.filter(e => !e.area_id && coincideEmpleado(e, consultaBusqueda));
                       const areasSinLider = areas.filter(a => !a.lider_id);
                       if (sinArea.length === 0 && areasSinLider.length === 0) return null;
 
@@ -1461,36 +1515,62 @@ async function confirmarInvitacionMasiva() {
                   </>
                 )}
 
-                {/* Lista de Áreas con Health Cards */}
-                <div className="space-y-6">
-                  {areasVisibles.map(area => {
-                    const miembrosArea = empleados.filter(e => e.area_id === area.id);
-                    return (
-                      <TarjetaSaludArea
-                        key={area.id}
-                        area={area}
-                        empleadosArea={miembrosArea}
-                        todosLosEmpleados={empleados}
-                        todasLasAreas={areas}
-                        estaAbierta={!!areasAbiertas[area.id]}
-                        onToggle={() => toggleArea(area.id)}
-                        funcionesTarjeta={funcionesTarjeta}
-                        asignarLiderArea={asignarLiderArea}
-                        asignarPadreArea={asignarPadreArea}
-                        calcularGantt={calcularGantt}
-                        puedeEditarEstructura={esAdmin}
-                        puedeEditarEmpleado={puedeEditarColaborador}
-                        renombrarArea={esAdmin ? renombrarArea : undefined}
-                        eliminarArea={esAdmin ? eliminarArea : undefined}
-                      />
-                    );
-                  })}
-                </div>
+                {/* Resumen de la búsqueda */}
+                {resultadoBusqueda && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl px-5 py-3 text-xs">
+                    <span className="text-slate-600">
+                      🔍 <strong className="text-slate-800">&quot;{busqueda.trim()}&quot;</strong>:{' '}
+                      {resultadoBusqueda.totalAreas} área(s) y {resultadoBusqueda.totalEmpleados} colaborador(es) encontrados
+                    </span>
+                    <button type="button" onClick={() => setBusqueda('')} className="font-bold text-[#FF4C4C] hover:underline">
+                      Limpiar búsqueda
+                    </button>
+                  </div>
+                )}
+
+                {/* Áreas en orden jerárquico, con Health Cards */}
+                {resultadoBusqueda && resultadoBusqueda.nodos.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 italic py-10">No hay áreas ni colaboradores que coincidan con la búsqueda.</p>
+                ) : (
+                  <ArbolAreas
+                    nodos={resultadoBusqueda ? resultadoBusqueda.nodos : jerarquiaAreas}
+                    forzarAbiertas={!!resultadoBusqueda}
+                    renderArea={({ area, ruta }) => {
+                      const miembrosArea = empleados.filter(e => e.area_id === area.id);
+                      // Con búsqueda: si coincide el nombre del área se ven todos; si no, solo los colaboradores que coinciden
+                      const coincideArea = resultadoBusqueda?.areasCoincidentes.has(area.id);
+                      const empCoinciden = resultadoBusqueda?.empleadosCoincidentesPorArea.get(area.id) || [];
+                      const empleadosVisibles = resultadoBusqueda && !coincideArea ? empCoinciden : undefined;
+                      return (
+                        <TarjetaSaludArea
+                          area={area}
+                          ruta={ruta}
+                          empleadosArea={miembrosArea}
+                          empleadosVisibles={empleadosVisibles}
+                          atenuada={!!resultadoBusqueda && !coincideArea && empCoinciden.length === 0}
+                          todosLosEmpleados={empleados}
+                          todasLasAreas={areas}
+                          opcionesPadre={opcionesPadrePorArea.get(area.id)}
+                          estaAbierta={!!areasAbiertas[area.id] || (!!resultadoBusqueda && !coincideArea && empCoinciden.length > 0)}
+                          onToggle={() => toggleArea(area.id)}
+                          funcionesTarjeta={funcionesTarjeta}
+                          asignarLiderArea={asignarLiderArea}
+                          asignarPadreArea={asignarPadreArea}
+                          calcularGantt={calcularGantt}
+                          puedeEditarEstructura={esAdmin}
+                          puedeEditarEmpleado={puedeEditarColaborador}
+                          renombrarArea={esAdmin ? renombrarArea : undefined}
+                          eliminarArea={esAdmin ? eliminarArea : undefined}
+                        />
+                      );
+                    }}
+                  />
+                )}
 
                 {/* Ex-colaboradores: se conservan para el histórico */}
                 {esAdmin && (
                   <SeccionDesvinculados
-                    desvinculados={empleadosDesvinculados}
+                    desvinculados={empleadosDesvinculados.filter(e => coincideEmpleado(e, consultaBusqueda))}
                     areas={areas}
                     onVerHistorial={(emp) => setEmpleadoViendoPerfil(emp)}
                     onReactivar={reactivarColaborador}
@@ -1584,7 +1664,7 @@ async function confirmarInvitacionMasiva() {
             {!esAdmin && vista === 'mi_equipo' && (
               <div className="animate-in fade-in">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {equipoLiderado.map(emp => (
+                  {equipoLiderado.filter(emp => coincideEmpleado(emp, consultaBusqueda)).map(emp => (
                     <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={true} funciones={{ ...funcionesTarjeta, asignarAreaEmpleado: async () => {} }} />
                   ))}
                 </div>
