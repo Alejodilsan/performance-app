@@ -7,6 +7,15 @@ import {
   AreaChart, Area, ReferenceLine, BarChart, Bar, XAxis, YAxis, 
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
 } from 'recharts';
+import ExcelJS from 'exceljs'
+
+export type TipoPerfil = 'Admin' | 'Manager' | 'Líder de Área' | 'Empleado' | 'Auditor';
+
+interface Puesto {
+  id: number;
+  nombre: string;
+  empresa_id?: number;
+}
 
 // --- TIPOS DE DATOS ---
 interface Area { id: number; nombre: string; lider_id: number | null; parent_id: number | null; children?: Area[]; empleados?: Empleado[]; }
@@ -47,21 +56,23 @@ interface Empleado {
   id: number; 
   nombre: string; 
   puesto: string; 
-  job_descripcion?: string; // <-- Nuevo
+  puesto_id?: number | null;
+  tipo_perfil?: TipoPerfil;
+  job_descripcion?: string; 
   email: string; 
   cumplimiento_general: number; 
   area_id: number | null; 
   potencial_score?: 1 | 2 | 3; 
   indicadores?: Indicador[]; 
-  planes_mejora?: Plan[];
-  historico?: HistoricoCumplimiento[]; //
-}
+  planes_mejora?: Plan[]; 
+  historico?: HistoricoCumplimiento[];
+  } 
 
 interface Perfil {
   id: string;
   nombre: string;
   email: string;
-  rol: 'admin' | 'empleado';
+  rol: 'admin' | 'manager' | 'lider_area' | 'empleado' | 'auditor';
   empresa_id: number;
 }
 
@@ -179,8 +190,26 @@ export default function DashboardPerformance() {
   const [nuevosComentarios, setNuevosComentarios] = useState<{ [key: number]: string }>({});
   const [nombreEmpresa, setNombreEmpresa] = useState('');
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const router = useRouter()
+  const ROLES_DISPONIBLES: TipoPerfil[] = ['Admin', 'Manager', 'Líder de Área', 'Empleado', 'Auditor'];
+
+  // Catálogo de Puestos
+  const [puestos, setPuestos] = useState<Puesto[]>([]);
+  const [nuevoPuestoNombre, setNuevoPuestoNombre] = useState('');
+
+  // Modal de Creación Individual de Colaborador
+  const [modalNuevoEmpAbierto, setModalNuevoEmpAbierto] = useState(false);
+  const [puestoIdEmpleado, setPuestoIdEmpleado] = useState<string>('');
+  const [areaIdEmpleado, setAreaIdEmpleado] = useState<string>('');
+  const [tipoPerfilEmpleado, setTipoPerfilEmpleado] = useState<TipoPerfil>('Empleado');
+  const [guardandoEmpleado, setGuardandoEmpleado] = useState(false);
+
+  // Bandeja de Asignación en Bloque (Sin Área)
+  const [seleccionadosSinArea, setSeleccionadosSinArea] = useState<number[]>([]);
+  const [areaDestinoBloque, setAreaDestinoBloque] = useState<string>('');
+  const [asignandoBloque, setAsignandoBloque] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const [subiendoExcel, setSubiendoExcel] = useState(false);
 
   // Controla qué áreas están desplegadas en el tablero
 const [areasAbiertas, setAreasAbiertas] = useState<{ [id: number]: boolean }>({});
@@ -207,14 +236,14 @@ const toggleArea = (id: number) => {
     if (!session) { router.push('/login'); return }
     const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
     setPerfil(perfilData)
-    
-    if (perfilData?.rol === 'admin') { 
-      await obtenerDatosCorporativos(perfilData); 
-    } else { 
-      await identificarRolEmpleado(session.user.email!); 
+
+    if (perfilData?.rol === 'admin' || perfilData?.rol === 'auditor' || perfilData?.rol === 'manager') {
+      await obtenerDatosCorporativos(perfilData)
+    } else {
+      await identificarRolEmpleado(session.user.email!)
     }
-    
-    setLoading(false);
+
+    setLoading(false)
   }
 
   async function obtenerDatosCorporativos(perfilDeAcceso: Perfil) {
@@ -241,6 +270,12 @@ const toggleArea = (id: number) => {
     if (empresaData) {
       setNombreEmpresa(empresaData.nombre);
     }
+    const { data: puestosData } = await supabase
+      .from('puestos')
+      .select('*')
+      .eq('empresa_id', perfilDeAcceso?.empresa_id)
+      .order('nombre', { ascending: true });
+    if (puestosData) setPuestos(puestosData);
   }
 
   async function identificarRolEmpleado(email: string) {
@@ -274,7 +309,7 @@ const toggleArea = (id: number) => {
     } else { setVista('mi_perfil'); }
   }
 
-  const recargarDatos = () => { if (perfil?.rol === 'admin') obtenerDatosCorporativos(perfil); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
+  const recargarDatos = () => { if (perfil?.rol === 'admin' || perfil?.rol === 'auditor' || perfil?.rol === 'manager') obtenerDatosCorporativos(perfil); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
 
 // 1. Guarda/actualiza automáticamente el punto del mes actual al calificar KPIs
   async function registrarSnapshotMensual(eid: number, cumplimiento: number, potencial: number, totalKpis: number) {
@@ -342,121 +377,242 @@ const toggleArea = (id: number) => {
       recargarDatos();
     }
   }
-  const descargarPlantilla = () => {
-    // Datos de ejemplo para que el HR Manager sepa cómo llenar el Excel
-    const datosEjemplo = [
-      {
-        "Nombre": "Ejemplo: Ana López",
-        "Email": "ana.lopez@empresa.com",
-        "Puesto": "Desarrolladora Senior",
-        "Area": "Tecnología",
-        "Reporta A": "Operaciones"
-      },
-      {
-        "Nombre": "Ejemplo: Carlos Ruiz",
-        "Email": "carlos@empresa.com",
-        "Puesto": "Líder de Producto",
-        "Area": "Producto",
-        "Reporta A": "Operaciones"
-      }
+
+  const descargarPlantilla = async () => {
+    // 1. Consultar catálogos frescos desde Supabase para asegurar datos al día
+    const [{ data: puestosDB }, { data: areasDB }] = await Promise.all([
+      supabase.from('puestos').select('*').eq('empresa_id', perfil?.empresa_id).order('nombre', { ascending: true }),
+      supabase.from('areas').select('*').eq('empresa_id', perfil?.empresa_id).order('nombre', { ascending: true }),
+    ]);
+
+    const puestosLista = puestosDB || puestos;
+    const areasLista = areasDB || areas;
+
+    if (puestosLista.length === 0) {
+      alert("⚠️ No tienes Puestos de Trabajo creados.\n\nCrea al menos un puesto en el panel 'Nuevo Puesto de Trabajo' antes de descargar la plantilla para que aparezca la lista desplegable.");
+      return;
+    }
+
+    if (areasLista.length === 0) {
+      alert("⚠️ No tienes Áreas creadas.\n\nCrea al menos un área antes de descargar la plantilla.");
+      return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Colaboradores');
+    const catalogSheet = workbook.addWorksheet('Catalogos');
+    catalogSheet.state = 'veryHidden';
+
+    // 2. Poblar hoja oculta con los catálogos oficiales
+    puestosLista.forEach((p, idx) => { catalogSheet.getCell(`A${idx + 1}`).value = p.nombre; });
+    areasLista.forEach((a, idx) => { catalogSheet.getCell(`B${idx + 1}`).value = a.nombre; });
+    ROLES_DISPONIBLES.forEach((r, idx) => { catalogSheet.getCell(`C${idx + 1}`).value = r; });
+
+    sheet.columns = [
+      { header: 'Nombre', key: 'nombre', width: 28 },
+      { header: 'Email', key: 'email', width: 32 },
+      { header: 'Puesto', key: 'puesto', width: 26 },
+      { header: 'Area', key: 'area', width: 24 },
+      { header: 'Tipo de Perfil', key: 'tipo_perfil', width: 20 },
     ];
 
-    // Crea la hoja de trabajo (worksheet) desde el objeto JSON
-    const worksheet = XLSX.utils.json_to_sheet(datosEjemplo);
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
 
-    // Auto-ajustar el ancho de las columnas para que se vea limpio
-    worksheet['!cols'] = [
-      { wch: 25 }, // Ancho columna Nombre
-      { wch: 30 }, // Ancho columna Email
-      { wch: 25 }, // Ancho columna Puesto
-      { wch: 20 }, // Ancho columna Area
-      { wch: 20 }  // Ancho columna Reporta A
-    ];
+    // 3. Aplicar listas desplegables reales en Puesto (C), Area (D) y Tipo de Perfil (E)
+    for (let row = 2; row <= 200; row++) {
+      sheet.getCell(`C${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: false,
+        formulae: [`Catalogos!$A$1:$A$${puestosLista.length}`],
+        showErrorMessage: true,
+        errorTitle: 'Puesto inválido',
+        error: 'Selecciona un puesto disponible en la lista.'
+      };
 
-    // Crea el libro de trabajo (workbook) y le añade la hoja
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Empleados");
+      sheet.getCell(`D${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`Catalogos!$B$1:$B$${areasLista.length}`],
+        showErrorMessage: true,
+        errorTitle: 'Área inválida',
+        error: 'Selecciona un área previamente creada en la plataforma.'
+      };
 
-    // Fuerza la descarga como archivo .xlsx nativo
-    XLSX.writeFile(workbook, "Plantilla_Carga_Colaboradores.xlsx");
+      sheet.getCell(`E${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: false,
+        formulae: [`Catalogos!$C$1:$C$${ROLES_DISPONIBLES.length}`],
+        showErrorMessage: true,
+        errorTitle: 'Perfil inválido',
+        error: 'Selecciona un tipo de perfil válido.'
+      };
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Plantilla_Carga_Colaboradores.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; 
-    if (!file) return; 
+    const file = e.target.files?.[0];
+    if (!file || subiendoExcel) return;
+
+    setSubiendoExcel(true);
     const reader = new FileReader();
-    
+
     reader.onload = async (evt) => {
-      const wb = XLSX.read(evt.target?.result, { type: 'binary' }); 
-      const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
-      let areasActivas = [...areas];
-      const empresaId = perfil?.empresa_id;
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
 
-      // 1. Filtro estricto: Guardamos todos los correos actuales limpios (sin espacios y en minúscula)
-      const correosExistentes = new Set(empleados.map(emp => emp.email.trim().toLowerCase()));
-      let agregados = 0;
+        // Consultar correos actuales directamente desde Supabase para evitar datos desactualizados
+        const { data: existentesDB } = await supabase
+          .from('empleados')
+          .select('email')
+          .eq('empresa_id', perfil?.empresa_id);
 
-      for (const row of data) {
-        // Soporta varias formas en las que puede venir escrita la cabecera en el Excel
-        const emailRow = row['Email'] || row['email'] || row['Correo'];
-        if (!emailRow) continue;
+        const correosEnSistema = new Set(
+          (existentesDB || []).map(emp => emp.email.trim().toLowerCase())
+        );
+        const correosEnArchivo = new Set<string>();
+        const areasConLiderEnArchivo = new Set<number>();
 
-        // Limpiamos espacios accidentales del Excel
-        const emailLimpio = String(emailRow).trim().toLowerCase();
+        interface FilaValidada {
+          nombre: string;
+          email: string;
+          puestoNombre: string;
+          puestoId: number;
+          areaId: number | null;
+          tipoPerfil: TipoPerfil;
+        }
+        const registrosValidos: FilaValidada[] = [];
+        const errores: string[] = [];
 
-        // 2. Verificación total: Si ya existe en la BD o en esta misma carga, lo saltamos
-        if (correosExistentes.has(emailLimpio)) continue; 
-        
-        // Lo añadimos a la lista de "ya procesados" para no duplicarlo si viene 2 veces
-        correosExistentes.add(emailLimpio); 
+        rows.forEach((row, index) => {
+          const numFila = index + 2;
+          const nombreVal = String(row['Nombre'] || '').trim();
+          const emailVal = String(row['Email'] || '').trim().toLowerCase();
+          const puestoVal = String(row['Puesto'] || '').trim();
+          const areaVal = String(row['Area'] || '').trim();
+          const perfilVal = String(row['Tipo de Perfil'] || '').trim();
 
-        let parentId = null; let areaId = null; 
-        const reportaARow = row['Reporta A'] || row['Reporta a']; 
-        const areaRow = row['Area'] || row['area'];
+          // Ignorar filas completamente vacías
+          if (!nombreVal && !emailVal && !puestoVal && !areaVal && !perfilVal) return;
 
-        if (reportaARow) {
-          const nombrePadre = String(reportaARow).trim();
-          let padreExist = areasActivas.find(a => a.nombre.toLowerCase() === nombrePadre.toLowerCase());
-          if (padreExist) parentId = padreExist.id;
-          else { 
-            const { data: nP } = await supabase.from('areas').insert([{ nombre: nombrePadre, empresa_id: empresaId }]).select().single(); 
-            if (nP) { parentId = nP.id; areasActivas.push(nP); } 
+          if (!nombreVal) errores.push(`Fila ${numFila}: Falta el 'Nombre'.`);
+
+          if (!emailVal || !emailVal.includes('@')) {
+            errores.push(`Fila ${numFila}: 'Email' inválido o vacío.`);
+          } else if (correosEnSistema.has(emailVal)) {
+            errores.push(`Fila ${numFila}: El email "${emailVal}" ya existe en la plataforma.`);
+          } else if (correosEnArchivo.has(emailVal)) {
+            errores.push(`Fila ${numFila}: El email "${emailVal}" está duplicado dentro del Excel.`);
+          } else {
+            correosEnArchivo.add(emailVal);
           }
+
+          const puestoMatch = puestos.find(p => p.nombre.toLowerCase() === puestoVal.toLowerCase());
+          if (!puestoVal || !puestoMatch) {
+            errores.push(`Fila ${numFila}: El puesto "${puestoVal || 'Vacío'}" no existe en el catálogo.`);
+          }
+
+          let areaMatch: Area | undefined;
+          if (areaVal) {
+            areaMatch = areas.find(a => a.nombre.toLowerCase() === areaVal.toLowerCase());
+            if (!areaMatch) {
+              errores.push(`Fila ${numFila}: El área "${areaVal}" no está creada en la plataforma.`);
+            }
+          }
+
+          const rolMatch = ROLES_DISPONIBLES.find(r => r.toLowerCase() === perfilVal.toLowerCase());
+          if (!perfilVal || !rolMatch) {
+            errores.push(`Fila ${numFila}: Tipo de perfil "${perfilVal || 'Vacío'}" no válido.`);
+          }
+
+          if (rolMatch === 'Líder de Área') {
+            if (!areaMatch) {
+              errores.push(`Fila ${numFila}: El perfil 'Líder de Área' requiere especificar un Área válida.`);
+            } else if (areaMatch.lider_id !== null) {
+              errores.push(`Fila ${numFila}: El área "${areaMatch.nombre}" ya tiene un líder asignado.`);
+            } else if (areasConLiderEnArchivo.has(areaMatch.id)) {
+              errores.push(`Fila ${numFila}: Hay más de un 'Líder de Área' para "${areaMatch.nombre}" en el archivo.`);
+            } else {
+              areasConLiderEnArchivo.add(areaMatch.id);
+            }
+          }
+
+          if (puestoMatch && rolMatch) {
+            registrosValidos.push({
+              nombre: nombreVal,
+              email: emailVal,
+              puestoNombre: puestoMatch.nombre,
+              puestoId: puestoMatch.id,
+              areaId: areaMatch ? areaMatch.id : null,
+              tipoPerfil: rolMatch
+            });
+          }
+        });
+
+        if (errores.length > 0) {
+          alert(
+            `⛔ Carga rechazada. Se encontraron ${errores.length} error(es):\n\n` +
+            errores.slice(0, 12).join('\n') +
+            (errores.length > 12 ? `\n...y ${errores.length - 12} más.` : '')
+          );
+          return;
         }
 
-        if (areaRow) {
-          const nombreArea = String(areaRow).trim();
-          let aExist = areasActivas.find(a => a.nombre.toLowerCase() === nombreArea.toLowerCase());
-          if (aExist) { 
-            areaId = aExist.id; 
-            if (parentId && !aExist.parent_id) { 
-              await supabase.from('areas').update({ parent_id: parentId }).eq('id', areaId); 
-              aExist.parent_id = parentId; 
-            } 
-          }
-          else { 
-            const { data: nA } = await supabase.from('areas').insert([{ nombre: nombreArea, parent_id: parentId, empresa_id: empresaId }]).select().single(); 
-            if (nA) { areaId = nA.id; areasActivas.push(nA); } 
-          }
+        if (registrosValidos.length === 0) {
+          alert("El archivo no contiene filas válidas para importar.");
+          return;
         }
 
-        // Insertamos el empleado limpio
-        await supabase.from('empleados').insert([{
-          nombre: String(row['Nombre'] || row['nombre'] || 'Sin Nombre').trim(),
-          email: emailLimpio,
-          puesto: String(row['Puesto'] || row['puesto'] || 'Colaborador').trim(),
-          area_id: areaId,
+        // Inserción única en bloque
+        const payload = registrosValidos.map(reg => ({
+          nombre: reg.nombre,
+          email: reg.email,
+          puesto: reg.puestoNombre,
+          puesto_id: reg.puestoId,
+          area_id: reg.areaId,
+          tipo_perfil: reg.tipoPerfil,
           cumplimiento_general: 0,
-          empresa_id: empresaId
-        }]);
-        
-        agregados++;
-      }
+          empresa_id: perfil?.empresa_id
+        }));
 
-      alert(`✅ Carga completada. Se agregaron ${agregados} nuevos colaboradores (se ignoraron los repetidos).`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      recargarDatos();
-    }; 
+        const { data: insertados, error: insertError } = await supabase
+          .from('empleados')
+          .insert(payload)
+          .select();
+
+        if (insertError) {
+          alert("Error al importar colaboradores: " + insertError.message);
+          return;
+        }
+
+        // Vincular líderes de área si aplica
+        if (insertados) {
+          for (const empCreado of insertados) {
+            const regOriginal = registrosValidos.find(r => r.email === empCreado.email.toLowerCase());
+            if (regOriginal?.tipoPerfil === 'Líder de Área' && regOriginal.areaId) {
+              await supabase.from('areas').update({ lider_id: empCreado.id }).eq('id', regOriginal.areaId);
+            }
+          }
+        }
+
+        alert(`✅ Carga exitosa: ${registrosValidos.length} colaborador(es) importado(s).`);
+        recargarDatos();
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setSubiendoExcel(false);
+      }
+    };
+
     reader.readAsBinaryString(file);
   };
 
@@ -474,11 +630,118 @@ const toggleArea = (id: number) => {
     if (error) { alert("Hubo un error al crear el área. Intenta de nuevo."); console.error(error); }
     else { alert(`¡Área "${nombreLimpio}" creada con éxito!`); setNuevaAreaNombre(''); recargarDatos(); }
   }
+  async function crearPuesto() {
+    const nombreLimpio = nuevoPuestoNombre.trim();
+    if (!nombreLimpio) return;
 
+    const existe = puestos.some(p => p.nombre.toLowerCase() === nombreLimpio.toLowerCase());
+    if (existe) {
+      alert(`El puesto "${nombreLimpio}" ya existe en el catálogo.`);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('puestos')
+      .insert([{ nombre: nombreLimpio, empresa_id: perfil?.empresa_id }]);
+
+    if (error) {
+      alert("Error al crear puesto: " + error.message);
+    } else {
+      setNuevoPuestoNombre('');
+      recargarDatos();
+    }
+  }
+
+  async function agregarEmpleado(e: React.FormEvent) {
+    e.preventDefault();
+    const emailLimpio = emailEmpleado.trim().toLowerCase();
+    if (!nombre.trim() || !emailLimpio || !puestoIdEmpleado) {
+      alert("Nombre, Email y Puesto de trabajo son obligatorios.");
+      return;
+    }
+
+    if (empleados.some(emp => emp.email.trim().toLowerCase() === emailLimpio)) {
+      alert(`Ya existe un colaborador registrado con el correo ${emailLimpio}.`);
+      return;
+    }
+
+    const areaSeleccionada = areaIdEmpleado ? areas.find(a => a.id === parseInt(areaIdEmpleado)) : null;
+
+    // Validación estricta de Líder de Área
+    if (tipoPerfilEmpleado === 'Líder de Área') {
+      if (!areaSeleccionada) {
+        alert("⚠️ Para asignar el perfil 'Líder de Área', debes seleccionar un Área.");
+        return;
+      }
+      if (areaSeleccionada.lider_id) {
+        const liderActual = empleados.find(emp => emp.id === areaSeleccionada.lider_id);
+        alert(`⛔ Bloqueado: El área "${areaSeleccionada.nombre}" ya tiene un líder asignado (${liderActual?.nombre || 'Asignado'}).`);
+        return;
+      }
+    }
+
+    const puestoObj = puestos.find(p => p.id === parseInt(puestoIdEmpleado));
+    setGuardandoEmpleado(true);
+
+    const { data: nuevoEmp, error } = await supabase
+      .from('empleados')
+      .insert([{
+        nombre: nombre.trim(),
+        email: emailLimpio,
+        puesto: puestoObj?.nombre || 'Colaborador',
+        puesto_id: puestoObj?.id || null,
+        area_id: areaSeleccionada ? areaSeleccionada.id : null,
+        tipo_perfil: tipoPerfilEmpleado,
+        cumplimiento_general: 0,
+        empresa_id: perfil?.empresa_id
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      setGuardandoEmpleado(false);
+      alert("Error al registrar colaborador: " + error.message);
+      return;
+    }
+
+    // Si es Líder de Área, vincularlo automáticamente como lider_id del área
+    if (tipoPerfilEmpleado === 'Líder de Área' && areaSeleccionada && nuevoEmp) {
+      await supabase.from('areas').update({ lider_id: nuevoEmp.id }).eq('id', areaSeleccionada.id);
+    }
+
+    setGuardandoEmpleado(false);
+    setNombre('');
+    setEmailEmpleado('');
+    setPuestoIdEmpleado('');
+    setAreaIdEmpleado('');
+    setTipoPerfilEmpleado('Empleado');
+    setModalNuevoEmpAbierto(false);
+    recargarDatos();
+  }
+
+  async function asignarAreaEnBloque() {
+    if (seleccionadosSinArea.length === 0 || !areaDestinoBloque) {
+      alert("Selecciona al menos un colaborador y un área de destino.");
+      return;
+    }
+    setAsignandoBloque(true);
+    const { error } = await supabase
+      .from('empleados')
+      .update({ area_id: parseInt(areaDestinoBloque) })
+      .in('id', seleccionadosSinArea);
+
+    setAsignandoBloque(false);
+    if (error) {
+      alert("Error al asignar en bloque: " + error.message);
+    } else {
+      setSeleccionadosSinArea([]);
+      setAreaDestinoBloque('');
+      recargarDatos();
+    }
+  }
   async function asignarPadreArea(aid: number, pid: string) { const npid = pid === "" ? null : parseInt(pid); if (npid === aid) return; await supabase.from('areas').update({ parent_id: npid }).eq('id', aid); recargarDatos(); }
   async function asignarLiderArea(aid: number, lid: string) { await supabase.from('areas').update({ lider_id: lid === "" ? null : parseInt(lid) }).eq('id', aid); recargarDatos(); }
   async function asignarAreaEmpleado(eid: number, aid: string) { await supabase.from('empleados').update({ area_id: aid === "" ? null : parseInt(aid) }).eq('id', eid); recargarDatos(); }
-  async function agregarEmpleado(e: React.FormEvent) { e.preventDefault(); await supabase.from('empleados').insert([{ nombre, puesto, email: emailEmpleado, cumplimiento_general: 0, empresa_id: perfil?.empresa_id }]); recargarDatos(); }
 
   async function agregarIndicador(eid: number, datosKpi: any) {
   if (!datosKpi.titulo) return;
@@ -720,7 +983,81 @@ async function confirmarInvitacionMasiva() {
 }
 
   const esAdmin = perfil?.rol === 'admin';
-  const dataParaMetricas = esAdmin ? empleados : equipoLiderado;
+  const esAuditor = perfil?.rol === 'auditor';
+  const esManager = perfil?.rol === 'manager';
+
+  // Áreas y colaboradores que pertenecen al árbol en cascada del Manager
+  const { areasCascadaManager, empleadosCascadaManager, reportesDirectosManagerIds } = useMemo(() => {
+    if (!esManager || !miDesempeno) {
+      return {
+        areasCascadaManager: [] as Area[],
+        empleadosCascadaManager: [] as Empleado[],
+        reportesDirectosManagerIds: new Set<number>(),
+      };
+    }
+
+    // 1. Áreas lideradas directamente por el Manager
+    const areasRaizManager = areas.filter(a => a.lider_id === miDesempeno.id);
+    const idsAreasCascada = new Set<number>(areasRaizManager.map(a => a.id));
+
+    // 2. Recorrer en cascada todas las sub-áreas descendientes según organigrama (parent_id)
+    let agregadas = true;
+    while (agregadas) {
+      agregadas = false;
+      areas.forEach(a => {
+        if (a.parent_id && idsAreasCascada.has(a.parent_id) && !idsAreasCascada.has(a.id)) {
+          idsAreasCascada.add(a.id);
+          agregadas = true;
+        }
+      });
+    }
+
+    const areasFiltradas = areas.filter(a => idsAreasCascada.has(a.id));
+    const empleadosFiltrados = empleados.filter(e => e.area_id && idsAreasCascada.has(e.area_id));
+
+    // 3. Reportes directos editables por el Manager:
+    //    a) Miembros directos de su propia área (excluyéndose a sí mismo)
+    //    b) Líderes de área de las sub-áreas inmediatas que le reportan
+    const directosIds = new Set<number>();
+    const idsRaiz = new Set(areasRaizManager.map(a => a.id));
+
+    empleados.forEach(emp => {
+      if (emp.id !== miDesempeno.id && emp.area_id && idsRaiz.has(emp.area_id)) {
+        directosIds.add(emp.id);
+      }
+    });
+
+    areas.forEach(subArea => {
+      if (subArea.parent_id && idsRaiz.has(subArea.parent_id) && subArea.lider_id && subArea.lider_id !== miDesempeno.id) {
+        directosIds.add(subArea.lider_id);
+      }
+    });
+
+    return {
+      areasCascadaManager: areasFiltradas,
+      empleadosCascadaManager: empleadosFiltrados,
+      reportesDirectosManagerIds: directosIds,
+    };
+  }, [esManager, miDesempeno, areas, empleados]);
+
+  // Función central que decide si el usuario actual puede editar/crear/eliminar datos de un colaborador
+  const puedeEditarColaborador = (emp: Empleado): boolean => {
+    if (esAdmin) return true;
+    if (esAuditor) return false;
+    if (esManager) return reportesDirectosManagerIds.has(emp.id);
+    if (esLider) return equipoLiderado.some(e => e.id === emp.id);
+    return false;
+  };
+
+  // Dataset para métricas de BI según el rol
+  const dataParaMetricas = (esAdmin || esAuditor)
+    ? empleados
+    : esManager
+      ? empleadosCascadaManager
+      : equipoLiderado;
+
+  // Áreas visibles en Tablero y Organigrama
+  const areasVisibles = esManager ? areasCascadaManager : areas;
 
   const metricasBI = useMemo(() => {
     const total = dataParaMetricas.length;
@@ -787,17 +1124,17 @@ async function confirmarInvitacionMasiva() {
           <div>
             <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Mi Espacio</p>
             <div className="space-y-1">
-              <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={esAdmin} />
-              <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={!true} />
-              <BotonLateral icono="👥" texto="Mi Equipo" activo={vista === 'mi_equipo'} onClick={() => setVista('mi_equipo')} visible={esLider && !esAdmin} />
-              <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={esAdmin} />
+              <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={esAdmin || esAuditor || esManager} />
+              <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={true} />
+              <BotonLateral icono="👥" texto="Mi Equipo" activo={vista === 'mi_equipo'} onClick={() => setVista('mi_equipo')} visible={esLider && !esAdmin && !esAuditor && !esManager} />
+              <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={esAdmin || esAuditor || esManager} />
             </div>
           </div>
 
           <div>
             <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Talento</p>
             <div className="space-y-1">
-              <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={esAdmin || esLider} />
+              <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={esAdmin || esAuditor || esManager || esLider} />
               <BotonLateral icono="⭐" texto="Evaluaciones 360" activo={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')} visible={true} />
             </div>
           </div>
@@ -823,34 +1160,62 @@ async function confirmarInvitacionMasiva() {
             <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm text-slate-400">
                <span className="mr-2">🔍</span> Buscar...
             </div>
-            {esAdmin && (
-              <button 
-                type="button"
-                onClick={() => setModalCorteAbierto(true)}
-                className="bg-slate-800 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-slate-900 transition flex items-center gap-1.5"
-                title="Generar snapshot formal de cumplimiento"
-              >
-                <span>📅</span> Cerrar Periodo
-              </button>
+            {esAuditor && (
+              <span className="text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1 rounded-full">
+                👁️ Modo Auditoría (Solo Lectura)
+              </span>
             )}
 
-            <button onClick={abrirModalInvitacion} disabled={invitando} className="bg-[#FF4C4C] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2">
-              <span>✨</span> {invitando ? 'Enviando...' : 'Invitar Equipo'}
-            </button>
-            
-            {esAdmin && (
+            {esManager && (
+              <span className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full">
+                🧭 Vista Manager (Directos + Cascada)
+              </span>
+            )}
 
-               <div className="flex items-center gap-2">
-                 <button onClick={descargarPlantilla} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200">
-                   <span>⬇️</span> Plantilla
-                 </button>
-                 
-                 <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                 
-                 <button onClick={() => fileInputRef.current?.click()} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200">
-                   <span>⬆️</span> Subir Excel
-                 </button>
-               </div>
+            {esAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setModalCorteAbierto(true)}
+                  className="bg-slate-800 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-slate-900 transition flex items-center gap-1.5"
+                  title="Generar snapshot formal de cumplimiento"
+                >
+                  <span>📅</span> Cerrar Periodo
+                </button>
+
+                <button
+                  onClick={abrirModalInvitacion}
+                  disabled={invitando}
+                  className="bg-[#FF4C4C] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  <span>✨</span> {invitando ? 'Enviando...' : 'Invitar Equipo'}
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={descargarPlantilla}
+                    className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200"
+                  >
+                    <span>⬇️</span> Plantilla
+                  </button>
+
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={subiendoExcel}
+                    className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200 disabled:opacity-50"
+                  >
+                    <span>⬆️</span> {subiendoExcel ? 'Cargando...' : 'Subir Excel'}
+                  </button>
+                </div>
+              </>
             )}
             
             <div className="flex items-center gap-3 border-l border-slate-200 pl-4 ml-2">
@@ -868,30 +1233,197 @@ async function confirmarInvitacionMasiva() {
         {/* CONTENIDO PRINCIPAL (El que hace Scroll) */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar relative">
           <div className="max-w-[1200px] mx-auto">
-
-            {/* --- CONTENIDO: TABLERO ADMIN --- */}
-            {esAdmin && vista === 'tablero' && (
+{/* --- CONTENIDO: TABLERO ADMIN --- */}
+            {(esAdmin || esAuditor || esManager) && vista === 'tablero' && (
               <div className="animate-in fade-in space-y-8">
-                
-                {/* Panel superior de Creación (Estilo Tarjeta Blanca Limpia) */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-4 items-end">
-                  <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nueva Área</label>
-                    <input className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-sm text-slate-900 placeholder-slate-400 outline-none focus:border-[#FF4C4C] focus:ring-1 focus:ring-[#FF4C4C] transition-all" placeholder="Ej: Operaciones..." value={nuevaAreaNombre} onChange={e => setNuevaAreaNombre(e.target.value)} />
-                  </div>
-                  <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Jerarquía</label>
-                    <select className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-sm text-slate-700 outline-none focus:border-[#FF4C4C] transition-all" value={nuevaAreaPadre} onChange={e => setNuevaAreaPadre(e.target.value)}>
-                      <option value="">-- Área Principal --</option>
-                      {areas.map(a => <option key={a.id} value={a.id}>Dentro de: {a.nombre}</option>)}
-                    </select>
-                  </div>
-                  <button onClick={crearArea} className="bg-slate-800 text-white px-8 py-2.5 rounded-lg text-sm font-bold shadow-sm hover:bg-slate-900 transition-colors h-[42px]">Crear Área</button>
-                </div>
+
+                {esAdmin && (
+                  <>
+                    {/* Panel superior: Crear Área, Crear Puesto y Nuevo Colaborador */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Crear Área */}
+                      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-3 items-end">
+                        <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Nueva Área</label>
+                          <input
+                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-900 outline-none focus:border-[#FF4C4C]"
+                            placeholder="Ej: Ventas..."
+                            value={nuevaAreaNombre}
+                            onChange={e => setNuevaAreaNombre(e.target.value)}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Reporta a</label>
+                          <select
+                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-700 outline-none focus:border-[#FF4C4C]"
+                            value={nuevaAreaPadre}
+                            onChange={e => setNuevaAreaPadre(e.target.value)}
+                          >
+                            <option value="">(Área Principal)</option>
+                            {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                          </select>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={crearArea}
+                          className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-900 transition h-[34px]"
+                        >
+                          + Área
+                        </button>
+                      </div>
+
+                      {/* Crear Puesto de Trabajo */}
+                      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-3 items-end">
+                        <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                            Nuevo Puesto ({puestos.length})
+                          </label>
+                          <input
+                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-900 outline-none focus:border-[#FF4C4C]"
+                            placeholder="Ej: Gerente Comercial..."
+                            value={nuevoPuestoNombre}
+                            onChange={e => setNuevoPuestoNombre(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                            Puestos Disponibles
+                          </label>
+                          <select
+                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-700 outline-none"
+                            defaultValue=""
+                          >
+                            <option value="" disabled>
+                              {puestos.length > 0 ? `Ver (${puestos.length}) puestos...` : 'Sin puestos creados'}
+                            </option>
+                            {puestos.map(p => (
+                              <option key={p.id} value={p.id}>{p.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={crearPuesto}
+                          className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-900 transition h-[34px]"
+                        >
+                          + Puesto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModalNuevoEmpAbierto(true)}
+                          className="bg-[#FF4C4C] text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-600 transition h-[34px] shadow-sm"
+                        >
+                          + Nuevo Colaborador
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bandeja de Pendientes de Estructura Organizacional */}
+                    {(() => {
+                      const sinArea = empleados.filter(e => !e.area_id);
+                      const areasSinLider = areas.filter(a => !a.lider_id);
+                      if (sinArea.length === 0 && areasSinLider.length === 0) return null;
+
+                      return (
+                        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-5 space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">⚠️</span>
+                              <div>
+                                <h3 className="text-sm font-bold text-slate-800">Pendientes de Estructura Organizacional</h3>
+                                <p className="text-[11px] text-slate-500">
+                                  {sinArea.length} colaborador(es) sin área • {areasSinLider.length} área(s) sin líder asignado
+                                </p>
+                              </div>
+                            </div>
+
+                            {areasSinLider.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {areasSinLider.map(a => (
+                                  <span key={a.id} className="text-[10px] font-bold bg-white text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full">
+                                    Sin líder: {a.nombre}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {sinArea.length > 0 && (
+                            <div className="bg-white rounded-xl border border-amber-200/80 p-4 space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={seleccionadosSinArea.length === sinArea.length && sinArea.length > 0}
+                                    onChange={() => setSeleccionadosSinArea(
+                                      seleccionadosSinArea.length === sinArea.length ? [] : sinArea.map(e => e.id)
+                                    )}
+                                    className="accent-[#FF4C4C] rounded"
+                                  />
+                                  Seleccionar todos ({sinArea.length})
+                                </label>
+
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={areaDestinoBloque}
+                                    onChange={(e) => setAreaDestinoBloque(e.target.value)}
+                                    className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 outline-none focus:border-[#FF4C4C]"
+                                  >
+                                    <option value="">-- Elegir Área destino --</option>
+                                    {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={asignarAreaEnBloque}
+                                    disabled={asignandoBloque || seleccionadosSinArea.length === 0 || !areaDestinoBloque}
+                                    className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-900 transition disabled:opacity-40"
+                                  >
+                                    {asignandoBloque ? 'Asignando...' : `Asignar (${seleccionadosSinArea.length})`}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                {sinArea.map(emp => {
+                                  const marcado = seleccionadosSinArea.includes(emp.id);
+                                  return (
+                                    <label
+                                      key={emp.id}
+                                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                                        marcado ? 'bg-red-50/60 border-[#FF4C4C]/40' : 'bg-slate-50/60 border-slate-200/70 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={marcado}
+                                        onChange={() => setSeleccionadosSinArea(prev =>
+                                          prev.includes(emp.id) ? prev.filter(id => id !== emp.id) : [...prev, emp.id]
+                                        )}
+                                        className="accent-[#FF4C4C]"
+                                      />
+                                      <div className="min-w-0 flex-1">
+                                        <p className="font-bold text-slate-800 truncate">{emp.nombre}</p>
+                                        <p className="text-[10px] text-slate-500 truncate">
+                                          {emp.puesto} • <span className="font-semibold text-slate-700">{emp.tipo_perfil || 'Empleado'}</span>
+                                        </p>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
 
                 {/* Lista de Áreas con Health Cards */}
                 <div className="space-y-6">
-                  {areas.map(area => {
+                  {areasVisibles.map(area => {
                     const miembrosArea = empleados.filter(e => e.area_id === area.id);
                     return (
                       <TarjetaSaludArea
@@ -906,19 +1438,70 @@ async function confirmarInvitacionMasiva() {
                         asignarLiderArea={asignarLiderArea}
                         asignarPadreArea={asignarPadreArea}
                         calcularGantt={calcularGantt}
+                        puedeEditarEstructura={esAdmin}
+                        puedeEditarEmpleado={puedeEditarColaborador}
                       />
                     );
                   })}
                 </div>
 
-                {/* Botón Flotante para Agregar Empleado Manual */}
-                <div className="fixed bottom-8 right-8 bg-white p-3 rounded-full shadow-[0_10px_25px_-5px_rgba(0,0,0,0.2)] flex gap-2 border border-slate-100 z-50">
-                  <form onSubmit={agregarEmpleado} className="flex gap-2">
-                    <input className="bg-slate-50 border border-slate-200 rounded-full px-4 text-sm w-36 outline-none focus:border-[#FF4C4C]" placeholder="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} required />
-                    <input className="bg-slate-50 border border-slate-200 rounded-full px-4 text-sm w-48 outline-none focus:border-[#FF4C4C]" placeholder="Email" value={emailEmpleado} onChange={e => setEmailEmpleado(e.target.value)} required />
-                    <button className="bg-[#FF4C4C] text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg hover:bg-red-600 transition shadow-sm">+</button>
-                  </form>
-                </div>
+                {/* Modal de Creación Individual */}
+                  {esAdmin && modalNuevoEmpAbierto && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+                    <form onSubmit={agregarEmpleado} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-100 space-y-4">
+                      <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <h3 className="text-base font-bold text-slate-800">Registrar Nuevo Colaborador</h3>
+                        <button type="button" onClick={() => setModalNuevoEmpAbierto(false)} className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold text-xs">✕</button>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Nombre Completo *</label>
+                        <input className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={nombre} onChange={e => setNombre(e.target.value)} required />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Correo Corporativo *</label>
+                        <input type="email" className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={emailEmpleado} onChange={e => setEmailEmpleado(e.target.value)} required />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Puesto de Trabajo *</label>
+                          <select className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={puestoIdEmpleado} onChange={e => setPuestoIdEmpleado(e.target.value)} required>
+                            <option value="">-- Seleccionar --</option>
+                            {puestos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Tipo de Perfil *</label>
+                          <select className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={tipoPerfilEmpleado} onChange={e => setTipoPerfilEmpleado(e.target.value as TipoPerfil)}>
+                            {ROLES_DISPONIBLES.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Área Asignada (Opcional)</label>
+                        <select className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]" value={areaIdEmpleado} onChange={e => setAreaIdEmpleado(e.target.value)}>
+                          <option value="">-- Dejar sin área (Pendiente) --</option>
+                          {areas.map(a => (
+                            <option key={a.id} value={a.id}>
+                              {a.nombre} {a.lider_id ? '(Con líder)' : '(Sin líder)'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button type="button" onClick={() => setModalNuevoEmpAbierto(false)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
+                        <button type="submit" disabled={guardandoEmpleado} className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl shadow-sm disabled:opacity-50">
+                          {guardandoEmpleado ? 'Guardando...' : 'Guardar Colaborador'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1552,7 +2135,10 @@ interface PropsTarjetaSaludArea {
   asignarLiderArea: (aid: number, lid: string) => Promise<void>;
   asignarPadreArea: (aid: number, pid: string) => Promise<void>;
   calcularGantt: (creado: string, limite: string) => any;
-}
+  puedeEditarEstructura: boolean;                
+  puedeEditarEmpleado: (emp: Empleado) => boolean; 
+ }
+
 
 function TarjetaSaludArea({
   area,
@@ -1565,6 +2151,8 @@ function TarjetaSaludArea({
   asignarLiderArea,
   asignarPadreArea,
   calcularGantt,
+  puedeEditarEstructura, 
+  puedeEditarEmpleado, 
 }: PropsTarjetaSaludArea) {
   const total = empleadosArea.length;
   const promedio = total > 0
@@ -1677,26 +2265,38 @@ function TarjetaSaludArea({
           <div className="flex items-center gap-3 text-xs">
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] uppercase font-bold text-slate-400">Líder:</span>
-              <select
-                className="bg-slate-50 border border-slate-200 rounded-lg text-xs py-1 px-2 text-slate-700 outline-none focus:border-slate-400"
-                value={area.lider_id || ""}
-                onChange={(e) => asignarLiderArea(area.id, e.target.value)}
-              >
-                <option value="">-- Sin Asignar --</option>
-                {todosLosEmpleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
+              {puedeEditarEstructura ? (
+                <select
+                  className="bg-slate-50 border border-slate-200 rounded-lg text-xs py-1 px-2 text-slate-700 outline-none focus:border-slate-400"
+                  value={area.lider_id || ""}
+                  onChange={(e) => asignarLiderArea(area.id, e.target.value)}
+                >
+                  <option value="">-- Sin Asignar --</option>
+                  {todosLosEmpleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              ) : (
+                <span className="text-xs font-semibold text-slate-700">
+                  {liderActual ? liderActual.nombre : 'Sin asignar'}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] uppercase font-bold text-slate-400">Depende de:</span>
-              <select
-                className="bg-slate-50 border border-slate-200 rounded-lg text-xs py-1 px-2 text-slate-700 outline-none focus:border-slate-400"
-                value={area.parent_id || ""}
-                onChange={(e) => asignarPadreArea(area.id, e.target.value)}
-              >
-                <option value="">(Principal)</option>
-                {todasLasAreas.filter(a => a.id !== area.id).map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
-              </select>
+              {puedeEditarEstructura ? (
+                <select
+                  className="bg-slate-50 border border-slate-200 rounded-lg text-xs py-1 px-2 text-slate-700 outline-none focus:border-slate-400"
+                  value={area.parent_id || ""}
+                  onChange={(e) => asignarPadreArea(area.id, e.target.value)}
+                >
+                  <option value="">(Principal)</option>
+                  {todasLasAreas.filter(a => a.id !== area.id).map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
+                </select>
+              ) : (
+                <span className="text-xs font-semibold text-slate-700">
+                  {todasLasAreas.find(a => a.id === area.parent_id)?.nombre || '(Principal)'}
+                </span>
+              )}
             </div>
           </div>
 
@@ -1725,7 +2325,7 @@ function TarjetaSaludArea({
                   emp={emp}
                   esLider={area.lider_id === emp.id}
                   areas={todasLasAreas}
-                  allowEdit={true}
+                  allowEdit={puedeEditarEmpleado(emp)}
                   funciones={funcionesTarjeta}
                 />
               ))}
