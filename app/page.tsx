@@ -8,13 +8,16 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 import ExcelJS from 'exceljs'
-import { estaActivo, type TipoPerfil, type Puesto, type Area, type Plan, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion } from '@/lib/tipos'
+import { estaActivo, type TipoPerfil, type Puesto, type Area, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion } from '@/lib/tipos'
 import { PanelColaborador, type OpcionesGuardado } from '@/components/PanelColaborador'
 import { payloadEmpleado, parsearMonto, type DatosColaborador, type DatosCompensacion } from '@/lib/colaboradores'
 import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColaborador'
 import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
 import { ArbolAreas } from '@/components/ArbolAreas'
 import { ModalAccesos } from '@/components/ModalAccesos'
+import { cargarDatosSesion, type RespuestaDatos, type EntradaDirectorio } from '@/lib/datos'
+import type { Alcance } from '@/lib/alcance'
+import { ReporteEvaluaciones } from '@/components/ReporteEvaluaciones'
 import { otorgarAccesos, sincronizarRol, type ResultadoOtorgar, revocarAcceso, restaurarAcceso, debeCambiarClave } from '@/lib/accesos'
 import { construirJerarquia, filtrarJerarquia, idsDescendientes, coincideEmpleado, normalizarTexto } from '@/lib/jerarquia'
 import { BotonLateral } from '@/components/BotonLateral'
@@ -74,10 +77,10 @@ export default function DashboardPerformance() {
   }, [empleados]);
   
 
-  const [esLider, setEsLider] = useState(false)
-  const [areaLiderada, setAreaLiderada] = useState<Area | null>(null)
-  const [equipoLiderado, setEquipoLiderado] = useState<Empleado[]>([])
-  const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_equipo' | 'mi_perfil' | 'evaluaciones'>('tablero')
+  // Alcance de visibilidad (lib/alcance.ts) y directorio mínimo para el organigrama informativo
+  const [alcance, setAlcance] = useState<Alcance | null>(null)
+  const [directorio, setDirectorio] = useState<EntradaDirectorio[]>([])
+  const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_perfil' | 'evaluaciones'>('tablero')
 
   const [nuevaAreaNombre, setNuevaAreaNombre] = useState(''); const [nuevaAreaPadre, setNuevaAreaPadre] = useState<string>("");
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
@@ -129,101 +132,53 @@ const toggleArea = (id: number) => {
     if (!session) { router.push('/login'); return }
     // Primer ingreso con clave temporal: debe crear su propia contraseña antes de usar la plataforma
     if (debeCambiarClave(session.user.app_metadata)) { router.push('/actualizar-clave'); return }
-    const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
+    await cargarDatos(true)
+    setLoading(false)
+  }
 
-    // Un colaborador desvinculado conserva su histórico pero ya no puede entrar a la plataforma
-    const { data: miFichaEmpleado } = await supabase.from('empleados').select('*').eq('email', session.user.email!).maybeSingle()
-    if (miFichaEmpleado && !estaActivo(miFichaEmpleado)) {
+  // Carga todo lo que el usuario puede ver. El servidor (/api/datos) aplica el alcance según la jerarquía de áreas.
+  async function cargarDatos(inicial = false) {
+    let datos: RespuestaDatos;
+    try { datos = await cargarDatosSesion(); }
+    catch (e) { alert(`No se pudieron cargar los datos: ${mensajeDeError(e)}`); return; }
+
+    if (datos.estado === 'desvinculado') {
+      // Un colaborador desvinculado conserva su histórico pero ya no puede entrar a la plataforma
       await supabase.auth.signOut()
       alert('Tu cuenta está desvinculada de la organización. Si crees que es un error, contacta a RRHH.')
       router.push('/login')
       return
     }
-
-    setPerfil(perfilData)
-
-    if (perfilData?.rol === 'admin' || perfilData?.rol === 'auditor' || perfilData?.rol === 'manager') {
-      await obtenerDatosCorporativos(perfilData)
-    } else {
-      await identificarRolEmpleado(session.user.email!)
+    if (datos.estado === 'sin_perfil') {
+      alert('Tu usuario todavía no tiene un perfil asignado en la plataforma. Contacta a RRHH.')
+      return
     }
 
-    setLoading(false)
+    setPerfil(datos.perfil)
+    setNombreEmpresa(datos.nombreEmpresa)
+    setAreas(datos.areas)
+    setPuestos(datos.puestos)
+    setEvaluaciones(datos.evaluaciones)
+    setDirectorio(datos.directorio)
+    setAlcance(datos.alcance)
+    if (datos.monedaPreferida) setMonedaPreferida(datos.monedaPreferida)
+
+    // Toda la plataforma (tableros, BI, organigrama, invitaciones) trabaja solo con activos;
+    // los desvinculados (solo los recibe el Admin) se guardan aparte para el histórico.
+    const activos = datos.empleados.filter(estaActivo)
+    setEmpleadosDesvinculados(datos.empleados.filter(e => !estaActivo(e)))
+    // Equipo visible: Admin/Auditor toda la empresa; el resto su equipo (y él mismo si pertenece a un área a su cargo)
+    const areasDelAlcance = new Set(datos.alcance.areasIds)
+    const miId = datos.miEmpleado?.id
+    setEmpleados(datos.alcance.tipo === 'empresa'
+      ? activos
+      : activos.filter(e => e.id !== miId || (e.area_id !== null && areasDelAlcance.has(e.area_id))))
+    setMiDesempeno(datos.miEmpleado)
+
+    if (inicial) setVista(datos.alcance.tipo === 'personal' ? 'mi_perfil' : 'tablero')
   }
 
-  async function obtenerDatosCorporativos(perfilDeAcceso: Perfil) {
-    if (!perfilDeAcceso?.empresa_id) return;
-    const { data: areasData } = await supabase.from('areas').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id).order('id');
-    const { data: empData } = await supabase
-      .from('empleados')
-      .select('*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)')
-      .eq('empresa_id', perfilDeAcceso?.empresa_id)
-      .order('id', { ascending: true });
-    const { data: evalData } = await supabase.from('evaluaciones').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id);
-    if (areasData) setAreas(areasData); if (evalData) setEvaluaciones(evalData);
-    if (empData) {
-      const dataOrdenada: Empleado[] = empData.map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) }))
-      // Toda la plataforma (tableros, BI, organigrama, invitaciones) trabaja solo con activos;
-      // los desvinculados se guardan aparte para el histórico.
-      setEmpleados(dataOrdenada.filter(estaActivo))
-      setEmpleadosDesvinculados(dataOrdenada.filter(e => !estaActivo(e)))
-      const miFicha = dataOrdenada.find((e: any) => e.email === perfilDeAcceso?.email);
-      if (miFicha) setMiDesempeno(miFicha);
-    }
-    const { data: empresaData } = await supabase
-      .from('empresas')
-      .select('nombre')
-      .eq('id', perfilDeAcceso?.empresa_id)
-      .single();
-    if (empresaData) {
-      setNombreEmpresa(empresaData.nombre);
-    }
-    const { data: puestosData } = await supabase
-      .from('puestos')
-      .select('*')
-      .eq('empresa_id', perfilDeAcceso?.empresa_id)
-      .order('nombre', { ascending: true });
-    if (puestosData) setPuestos(puestosData);
-
-    if (perfilDeAcceso.rol === 'admin') {
-      const { data: ultimaComp } = await supabase.from('compensaciones').select('moneda')
-        .eq('empresa_id', perfilDeAcceso.empresa_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      if (ultimaComp?.moneda) setMonedaPreferida(ultimaComp.moneda);
-    }
-  }
-
-  async function identificarRolEmpleado(email: string) {
-    const { data: miData } = await supabase
-      .from('empleados')
-      .select('*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)')
-      .eq('email', email)
-      .single();
-
-    if (!miData) return;
-
-    const { data: areasData } = await supabase
-      .from('areas')
-      .select('*')
-      .eq('empresa_id', miData.empresa_id)
-      .order('id');
-    const { data: evalData } = await supabase
-      .from('evaluaciones')
-      .select('*')
-      .eq('empresa_id', miData.empresa_id);
-
-    if (areasData) setAreas(areasData);
-    if (evalData) setEvaluaciones(evalData);
-
-    setMiDesempeno({ ...miData, planes_mejora: miData.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) });
-    const { data: areaLider } = await supabase.from('areas').select('*').eq('lider_id', miData.id).single();
-    if (areaLider) {
-      setEsLider(true); setAreaLiderada(areaLider); setVista('mi_equipo');
-      const { data: equipoData } = await supabase.from('empleados').select('*, indicadores(*), planes_mejora(*, comentarios(*))').eq('area_id', areaLider.id).order('id');
-      if (equipoData) setEquipoLiderado(equipoData.filter(estaActivo).map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) })));
-    } else { setVista('mi_perfil'); }
-  }
-
-  const recargarDatos = () => { if (perfil?.rol === 'admin' || perfil?.rol === 'auditor' || perfil?.rol === 'manager') obtenerDatosCorporativos(perfil); else if (perfil?.email) identificarRolEmpleado(perfil.email); }
+  const recargarDatos = () => { cargarDatos() }
 
 // 1. Guarda/actualiza automáticamente el punto del mes actual al calificar KPIs
   async function registrarSnapshotMensual(eid: number, cumplimiento: number, potencial: number, totalKpis: number) {
@@ -852,8 +807,8 @@ const toggleArea = (id: number) => {
   }
 
   async function actualizarIndicador(id: number, val: number, eid: number) {
-    const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
-    const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
+    const targetList = empleados;
+    const setter = setEmpleados;
     let nuevoPromedioCalculado = 0;
 
     const updatedList = targetList.map(emp => {
@@ -915,8 +870,8 @@ const toggleArea = (id: number) => {
   }
 
   async function guardarEvaluacionPotencial(eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) {
-    const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
-    const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
+    const targetList = empleados;
+    const setter = setEmpleados;
     
     // Usamos el ID numérico del empleado evaluador si existe, o null
     const evaluadorIdNumerico = miDesempeno?.id || null;
@@ -948,8 +903,8 @@ const toggleArea = (id: number) => {
 
   // --- FUNCIÓN 2: GUARDAR FEEDBACK EN EL KPI ---
   async function guardarFeedbackKPI(kpiId: number, eid: number, feedback: string) {
-    const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
-    const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
+    const targetList = empleados;
+    const setter = setEmpleados;
 
     const fechaActual = new Date().toISOString();
 
@@ -978,13 +933,13 @@ const toggleArea = (id: number) => {
 
   async function guardarEvaluacion(evaluadoId: number, tipo: string, puntuacion: number, feedback: string) {
     if (!miDesempeno) return; if (puntuacion === 0) return alert("Selecciona una puntuación"); if (feedback.trim() === '') return alert("Escribe un comentario");
-    await supabase.from('evaluaciones').insert([{ evaluador_id: miDesempeno.id, evaluado_id: evaluadoId, tipo, puntuacion, feedback }]);
+    await supabase.from('evaluaciones').insert([{ evaluador_id: miDesempeno.id, evaluado_id: evaluadoId, tipo, puntuacion, feedback, empresa_id: perfil?.empresa_id }]);
     alert("Evaluación enviada"); recargarDatos();
   }
 
   async function actualizarDescripcionPuesto(eid: number, desc: string) {
-  const targetList = perfil?.rol === 'admin' ? empleados : equipoLiderado;
-  const setter = perfil?.rol === 'admin' ? setEmpleados : setEquipoLiderado;
+  const targetList = empleados;
+  const setter = setEmpleados;
 
   setter(targetList.map(e => e.id === eid ? { ...e, descripcion_puesto: desc } : e));
   await supabase.from('empleados').update({ descripcion_puesto: desc }).eq('id', eid);
@@ -1015,80 +970,35 @@ const toggleArea = (id: number) => {
 
   const esAdmin = perfil?.rol === 'admin';
   const esAuditor = perfil?.rol === 'auditor';
-  const esManager = perfil?.rol === 'manager';
+  // Alcance por jerarquía (calculado en el servidor, ver lib/alcance.ts)
+  const tieneEquipo = alcance?.tipo === 'equipo';
+  const directosIds = useMemo(() => new Set(alcance?.directosIds ?? []), [alcance]);
+  const areasDelAlcance = useMemo(() => new Set(alcance?.areasIds ?? []), [alcance]);
+  const esLider = directosIds.size > 0;
 
-  // Áreas y colaboradores que pertenecen al árbol en cascada del Manager
-  const { areasCascadaManager, empleadosCascadaManager, reportesDirectosManagerIds } = useMemo(() => {
-    if (!esManager || !miDesempeno) {
-      return {
-        areasCascadaManager: [] as Area[],
-        empleadosCascadaManager: [] as Empleado[],
-        reportesDirectosManagerIds: new Set<number>(),
-      };
-    }
-
-    // 1. Áreas lideradas directamente por el Manager
-    const areasRaizManager = areas.filter(a => a.lider_id === miDesempeno.id);
-    const idsAreasCascada = new Set<number>(areasRaizManager.map(a => a.id));
-
-    // 2. Recorrer en cascada todas las sub-áreas descendientes según organigrama (parent_id)
-    let agregadas = true;
-    while (agregadas) {
-      agregadas = false;
-      areas.forEach(a => {
-        if (a.parent_id && idsAreasCascada.has(a.parent_id) && !idsAreasCascada.has(a.id)) {
-          idsAreasCascada.add(a.id);
-          agregadas = true;
-        }
-      });
-    }
-
-    const areasFiltradas = areas.filter(a => idsAreasCascada.has(a.id));
-    const empleadosFiltrados = empleados.filter(e => e.area_id && idsAreasCascada.has(e.area_id));
-
-    // 3. Reportes directos editables por el Manager:
-    //    a) Miembros directos de su propia área (excluyéndose a sí mismo)
-    //    b) Líderes de área de las sub-áreas inmediatas que le reportan
-    const directosIds = new Set<number>();
-    const idsRaiz = new Set(areasRaizManager.map(a => a.id));
-
-    empleados.forEach(emp => {
-      if (emp.id !== miDesempeno.id && emp.area_id && idsRaiz.has(emp.area_id)) {
-        directosIds.add(emp.id);
-      }
-    });
-
-    areas.forEach(subArea => {
-      if (subArea.parent_id && idsRaiz.has(subArea.parent_id) && subArea.lider_id && subArea.lider_id !== miDesempeno.id) {
-        directosIds.add(subArea.lider_id);
-      }
-    });
-
-    return {
-      areasCascadaManager: areasFiltradas,
-      empleadosCascadaManager: empleadosFiltrados,
-      reportesDirectosManagerIds: directosIds,
-    };
-  }, [esManager, miDesempeno, areas, empleados]);
-
-  // Función central que decide si el usuario actual puede editar/crear/eliminar datos de un colaborador
+  // Función central que decide si el usuario actual puede editar/crear/eliminar datos de un colaborador:
+  // Admin a todos; Auditor a nadie; el resto solo a sus reportes directos (la cascada es de solo lectura)
   const puedeEditarColaborador = (emp: Empleado): boolean => {
     if (esAdmin) return true;
     if (esAuditor) return false;
-    if (esManager) return reportesDirectosManagerIds.has(emp.id);
-    if (esLider) return equipoLiderado.some(e => e.id === emp.id);
-    return false;
+    return directosIds.has(emp.id);
   };
 
-  // Dataset para métricas de BI según el rol
-  const dataParaMetricas = (esAdmin || esAuditor)
-    ? empleados
-    : esManager
-      ? empleadosCascadaManager
-      : equipoLiderado;
+  // Dataset para métricas de BI: toda la empresa (Admin/Auditor) o solo el equipo asignado (sin incluirse a sí mismo)
+  const dataParaMetricas = useMemo(
+    () => (esAdmin || esAuditor) ? empleados : empleados.filter(e => e.id !== miDesempeno?.id),
+    [esAdmin, esAuditor, empleados, miDesempeno]
+  );
 
-  // Áreas visibles en Tablero y Organigrama
-  const areasVisibles = esManager ? areasCascadaManager : areas;
+  // Áreas visibles en el tablero: todas (Admin/Auditor) o las que lidera + sus sub-áreas
+  const areasVisibles = useMemo(
+    () => alcance?.tipo === 'empresa' ? areas : areas.filter(a => areasDelAlcance.has(a.id)),
+    [alcance, areas, areasDelAlcance]
+  );
+  // Miembros del equipo que no están en un área a su cargo (p. ej. le reportan como jefe directo desde otra área)
+  const reportesFueraDeArea = alcance?.tipo === 'equipo'
+    ? empleados.filter(e => e.id !== miDesempeno?.id && !(e.area_id !== null && areasDelAlcance.has(e.area_id)))
+    : [];
 
   // Árbol jerárquico de áreas (según "Depende de") y su versión filtrada por el buscador
   const consultaBusqueda = normalizarTexto(busqueda);
@@ -1108,13 +1018,12 @@ const toggleArea = (id: number) => {
     return mapa;
   }, [areas]);
 
-  const puedeBuscar = esAdmin || esAuditor || esManager || esLider;
+  const puedeVerTablero = esAdmin || esAuditor || tieneEquipo;
+  const puedeBuscar = puedeVerTablero;
   function cambiarBusqueda(texto: string) {
     setBusqueda(texto);
-    // La búsqueda se ve en el tablero (o en Mi Equipo para líderes): llevamos al usuario ahí
-    if (texto && vista !== 'tablero' && vista !== 'mi_equipo') {
-      setVista(esAdmin || esAuditor || esManager ? 'tablero' : 'mi_equipo');
-    }
+    // La búsqueda se ve en el tablero: llevamos al usuario ahí
+    if (texto && vista !== 'tablero') setVista('tablero');
   }
 
   const metricasBI = useMemo(() => {
@@ -1145,8 +1054,24 @@ const toggleArea = (id: number) => {
     return { total, prom, distribucion, pendientes, completados, datosArea, top5, bottom5, promEvals, evalsPorTipo, totalEvals: misEvals.length };
   }, [dataParaMetricas, areas, empleados, evaluaciones, esAdmin]);
 
+  // A quién evalúa "hacia arriba": su jefe directo o, si no tiene, el líder de su área
   const miAreaInfo = areas.find(a => a.id === miDesempeno?.area_id);
-  const miLider = empleados.find(e => e.id === miAreaInfo?.lider_id);
+  const miLiderId = miDesempeno?.jefe_directo_id ?? (miAreaInfo?.lider_id !== miDesempeno?.id ? miAreaInfo?.lider_id : null);
+  const entradaLider = directorio.find(e => e.id === miLiderId);
+  const miLider: Empleado | undefined = entradaLider
+    ? { ...entradaLider, email: '', cumplimiento_general: 0 }
+    : undefined;
+  const nombrePorId = new Map<number, string>([
+    ...directorio.map(e => [e.id, e.nombre] as [number, string]),
+    ...empleadosDesvinculados.map(e => [e.id, `${e.nombre} (desvinculado)`] as [number, string]),
+  ]);
+  // Reportes directos a los que puede hacer evaluación descendente
+  const equipoDirecto = empleados.filter(e => directosIds.has(e.id));
+  // Organigrama: con desempeño para Admin/Auditor; informativo (sin cumplimiento) para el resto
+  const verDesempenoEnOrganigrama = esAdmin || esAuditor;
+  const empleadosOrganigrama: Empleado[] = verDesempenoEnOrganigrama
+    ? empleados
+    : directorio.map(e => ({ ...e, email: '', cumplimiento_general: 0 }));
 
   if (loading) return <div className="p-10 text-center text-slate-500 font-medium w-full h-screen flex items-center justify-center bg-slate-50">Iniciando Plataforma Corporativa...</div>
 
@@ -1186,17 +1111,16 @@ const toggleArea = (id: number) => {
           <div>
             <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Mi Espacio</p>
             <div className="space-y-1">
-              <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={esAdmin || esAuditor || esManager} />
+              <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={puedeVerTablero} />
               <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={true} />
-              <BotonLateral icono="👥" texto="Mi Equipo" activo={vista === 'mi_equipo'} onClick={() => setVista('mi_equipo')} visible={esLider && !esAdmin && !esAuditor && !esManager} />
-              <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={esAdmin || esAuditor || esManager} />
+              <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={true} />
             </div>
           </div>
 
           <div>
             <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Talento</p>
             <div className="space-y-1">
-              <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={esAdmin || esAuditor || esManager || esLider} />
+              <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={puedeVerTablero} />
               <BotonLateral icono="⭐" texto="Evaluaciones 360" activo={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')} visible={true} />
             </div>
           </div>
@@ -1242,9 +1166,9 @@ const toggleArea = (id: number) => {
               </span>
             )}
 
-            {esManager && (
-              <span className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full">
-                🧭 Vista Manager (Directos + Cascada)
+            {tieneEquipo && (
+              <span className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full" title="Ves las áreas que lideras y sus sub-áreas; puedes editar solo a tus reportes directos">
+                🧭 Vista de equipo ({directosIds.size} directo{directosIds.size === 1 ? '' : 's'} · {Math.max(dataParaMetricas.length - directosIds.size, 0)} en cascada)
               </span>
             )}
 
@@ -1309,7 +1233,7 @@ const toggleArea = (id: number) => {
         <main className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar relative">
           <div className="max-w-[1200px] mx-auto">
 {/* --- CONTENIDO: TABLERO ADMIN --- */}
-            {(esAdmin || esAuditor || esManager) && vista === 'tablero' && (
+            {puedeVerTablero && vista === 'tablero' && (
               <div className="animate-in fade-in space-y-8">
 
                 {esAdmin && (
@@ -1548,6 +1472,19 @@ const toggleArea = (id: number) => {
                   />
                 )}
 
+                {/* Personas de su equipo que le reportan desde áreas que no lidera (jefe directo) */}
+                {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).length > 0 && (
+                  <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 md:p-6">
+                    <h3 className="text-sm font-bold text-slate-800 mb-1">👤 Reportes de otras áreas</h3>
+                    <p className="text-[11px] text-slate-500 mb-4">Te tienen como jefe directo aunque pertenecen a un área que no lideras.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                      {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).map(emp => (
+                        <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={puedeEditarColaborador(emp)} funciones={funcionesTarjeta} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Ex-colaboradores: se conservan para el histórico */}
                 {esAdmin && (
                   <SeccionDesvinculados
@@ -1599,49 +1536,33 @@ const toggleArea = (id: number) => {
               </div>
             )}
 
-            {/* --- CONTENIDO: MI EQUIPO (Líder) --- */}
-            {!esAdmin && vista === 'mi_equipo' && (
-              <div className="animate-in fade-in">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {equipoLiderado.filter(emp => coincideEmpleado(emp, consultaBusqueda)).map(emp => (
-                    <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={true} funciones={{ ...funcionesTarjeta, asignarAreaEmpleado: async () => {} }} />
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* --- CONTENIDO: ORGANIGRAMA --- */}
-            {esAdmin && vista === 'organigrama' && (
+            {vista === 'organigrama' && (
               <div className="bg-slate-100 p-8 rounded-2xl overflow-x-auto overflow-y-auto h-[750px] flex justify-center items-start animate-in zoom-in-95 border border-slate-200 shadow-inner custom-scrollbar relative">
                 <div className="absolute top-4 left-4 text-slate-300 font-bold text-2xl tracking-widest opacity-50 select-none">ESTRUCTURA ORGANIZACIONAL</div>
                 <div className="flex gap-16 pb-32 pt-10">
-                  {construirArbol(areas, empleados).map(areaRaiz => (<NodoOrganigrama key={areaRaiz.id} area={areaRaiz} />))}
+                  {construirArbol(areas, empleadosOrganigrama).map(areaRaiz => (<NodoOrganigrama key={areaRaiz.id} area={areaRaiz} mostrarCumplimiento={verDesempenoEnOrganigrama} />))}
                 </div>
               </div>
             )}
 
             {/* --- CONTENIDO: EVALUACIONES 360 --- */}
-            {vista === 'evaluaciones' && (esAdmin ? (
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
-                <div className="p-6 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800">📋 Reporte Global de Evaluaciones 360</h3></div>
-                <div className="p-6 grid gap-4">
-                  {evaluaciones.length === 0 ? <p className="text-slate-400">Nadie ha enviado evaluaciones aún.</p> : evaluaciones.map(ev => {
-                    const evaluador = empleados.find(e => e.id === ev.evaluador_id)?.nombre;
-                    const evaluado = empleados.find(e => e.id === ev.evaluado_id)?.nombre;
-                    return (
-                      <div key={ev.id} className="p-4 border border-slate-100 bg-slate-50 rounded-xl flex items-start gap-4">
-                        <div className="text-2xl pt-1">{'⭐'.repeat(ev.puntuacion)}</div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-800">{evaluador} <span className="text-slate-400 font-normal">evaluó a</span> {evaluado}</p>
-                          <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">{ev.tipo}</span>
-                          <p className="text-sm text-slate-600 mt-2 italic">"{ev.feedback}"</p>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+            {vista === 'evaluaciones' && ((esAdmin || esAuditor) ? (
+              <ReporteEvaluaciones titulo="📋 Reporte Global de Evaluaciones 360" evaluaciones={evaluaciones} nombrePorId={nombrePorId} />
+            ) : (
+              <div className="space-y-8">
+                <VistaEvaluaciones360 miDesempeno={miDesempeno} esLider={esLider} equipo={equipoDirecto} miLider={miLider} evaluaciones={evaluaciones} onSave={guardarEvaluacion} />
+                {tieneEquipo && (
+                  <ReporteEvaluaciones
+                    titulo="📋 Evaluaciones recibidas por mi equipo"
+                    evaluaciones={evaluaciones.filter(ev => ev.evaluado_id !== miDesempeno?.id && dataParaMetricas.some(e => e.id === ev.evaluado_id))}
+                    nombrePorId={nombrePorId}
+                    anonimizarAscendentes
+                    vacio="Tu equipo aún no ha recibido evaluaciones."
+                  />
+                )}
               </div>
-            ) : (<VistaEvaluaciones360 miDesempeno={miDesempeno} esLider={esLider} equipo={equipoLiderado} miLider={miLider} evaluaciones={evaluaciones} onSave={guardarEvaluacion} />))}
+            ))}
 
             {/* --- CONTENIDO: INFORMES (BI) --- */}
             {vista === 'informes' && (
