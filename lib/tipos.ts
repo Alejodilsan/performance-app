@@ -57,7 +57,15 @@ export interface Empleado {
   indicadores?: Indicador[]; 
   planes_mejora?: Plan[]; 
   historico?: HistoricoCumplimiento[];
-  } 
+  estado_contratacion?: EstadoContratacion;
+  fecha_desvinculacion?: string | null;
+  motivo_desvinculacion?: string | null;
+  }
+
+// Un colaborador que sale de la organización no se borra: queda 'desvinculado' para conservar su histórico.
+export type EstadoContratacion = 'activo' | 'desvinculado';
+export const MOTIVOS_DESVINCULACION = ['Renuncia voluntaria', 'Despido', 'Fin de contrato', 'Jubilación', 'Otro'] as const;
+export const estaActivo = (emp: Pick<Empleado, 'estado_contratacion'>) => emp.estado_contratacion !== 'desvinculado';
 
 export interface Perfil {
   id: string;
@@ -93,4 +101,7 @@ export interface FuncionesTarjeta {
   guardarEvaluacionPotencial?: (eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) => Promise<void>;
   guardarFeedbackKPI?: (kpiId: number, eid: number, feedback: string) => Promise<void>;
   verPerfilCompleto?: (emp: Empleado) => void;
+  // Solo Admin: abren los modales de edición y de desvinculación
+  editarColaborador?: (emp: Empleado) => void;
+  desvincularColaborador?: (emp: Empleado) => void;
 }

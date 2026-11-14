@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { TarjetaEmpleado } from './TarjetaEmpleado'
 
@@ -14,7 +15,10 @@ interface PropsTarjetaSaludArea {
   asignarPadreArea: (aid: number, pid: string) => Promise<void>;
   calcularGantt: (creado: string, limite: string) => any;
   puedeEditarEstructura: boolean;                
-  puedeEditarEmpleado: (emp: Empleado) => boolean; 
+  puedeEditarEmpleado: (emp: Empleado) => boolean;
+  // Solo Admin
+  renombrarArea?: (aid: number, nombre: string) => Promise<boolean>;
+  eliminarArea?: (area: Area) => Promise<void>;
  }
 
 
@@ -30,8 +34,19 @@ export function TarjetaSaludArea({
   asignarPadreArea,
   calcularGantt,
   puedeEditarEstructura, 
-  puedeEditarEmpleado, 
+  puedeEditarEmpleado,
+  renombrarArea,
+  eliminarArea,
 }: PropsTarjetaSaludArea) {
+  const [editandoNombre, setEditandoNombre] = useState(false);
+  const [nombreEditado, setNombreEditado] = useState(area.nombre);
+
+  async function guardarNombre() {
+    if (!renombrarArea) return;
+    const ok = await renombrarArea(area.id, nombreEditado);
+    if (ok) setEditandoNombre(false);
+  }
+
   const total = empleadosArea.length;
   const promedio = total > 0
     ? Math.round(empleadosArea.reduce((acc, curr) => acc + curr.cumplimiento_general, 0) / total)
@@ -69,10 +84,41 @@ export function TarjetaSaludArea({
           {/* Identidad del Área & Líder */}
           <div className="space-y-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">{area.nombre}</h2>
+              {editandoNombre ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    className="text-lg font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 outline-none focus:border-[#FF4C4C]"
+                    value={nombreEditado}
+                    onChange={e => setNombreEditado(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') guardarNombre();
+                      if (e.key === 'Escape') { setNombreEditado(area.nombre); setEditandoNombre(false); }
+                    }}
+                  />
+                  <button type="button" onClick={guardarNombre} className="text-[11px] font-bold text-white bg-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-900">Guardar</button>
+                  <button type="button" onClick={() => { setNombreEditado(area.nombre); setEditandoNombre(false); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-slate-100">Cancelar</button>
+                </div>
+              ) : (
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight">{area.nombre}</h2>
+              )}
               <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${estadoSalud.badgeClass}`}>
                 {estadoSalud.label}
               </span>
+              {puedeEditarEstructura && !editandoNombre && (renombrarArea || eliminarArea) && (
+                <div className="flex items-center gap-1">
+                  {renombrarArea && (
+                    <button type="button" onClick={() => { setNombreEditado(area.nombre); setEditandoNombre(true); }} title="Editar nombre del área" className="text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-2 py-0.5 rounded-lg">
+                      ✏️ Editar
+                    </button>
+                  )}
+                  {eliminarArea && (
+                    <button type="button" onClick={() => eliminarArea(area)} title="Eliminar área" className="text-[11px] font-bold text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-0.5 rounded-lg">
+                      🗑️ Eliminar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <p className="text-xs text-slate-500 flex items-center gap-2">
               <span>👑 Líder: <strong className="text-slate-700">{liderActual ? liderActual.nombre : 'Sin asignar'}</strong></span>

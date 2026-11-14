@@ -8,7 +8,10 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 import ExcelJS from 'exceljs'
-import type { TipoPerfil, Puesto, Area, Plan, Evaluacion, Empleado, Perfil, FuncionesTarjeta } from '@/lib/tipos'
+import { estaActivo, type TipoPerfil, type Puesto, type Area, type Plan, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta } from '@/lib/tipos'
+import { ModalEditarColaborador, type DatosEdicionColaborador } from '@/components/ModalEditarColaborador'
+import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColaborador'
+import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
 import { BotonLateral } from '@/components/BotonLateral'
 import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
 import { construirArbol, NodoOrganigrama } from '@/components/Organigrama'
@@ -18,7 +21,10 @@ import { MatrizNineBox } from '@/components/MatrizNineBox'
 import { ModalPerfilColaborador } from '@/components/ModalPerfilColaborador'
 
 export default function DashboardPerformance() {
-  const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [empleados, setEmpleados] = useState<Empleado[]>([]) // solo activos
+  const [empleadosDesvinculados, setEmpleadosDesvinculados] = useState<Empleado[]>([])
+  const [empleadoEditando, setEmpleadoEditando] = useState<Empleado | null>(null)
+  const [empleadoDesvinculando, setEmpleadoDesvinculando] = useState<Empleado | null>(null)
   const [areas, setAreas] = useState<Area[]>([])
   const [evaluaciones, setEvaluaciones] = useState<Evaluacion[]>([])
   const [miDesempeno, setMiDesempeno] = useState<Empleado | null>(null)
@@ -119,6 +125,16 @@ const toggleArea = (id: number) => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push('/login'); return }
     const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
+
+    // Un colaborador desvinculado conserva su histórico pero ya no puede entrar a la plataforma
+    const { data: miFichaEmpleado } = await supabase.from('empleados').select('*').eq('email', session.user.email!).maybeSingle()
+    if (miFichaEmpleado && !estaActivo(miFichaEmpleado)) {
+      await supabase.auth.signOut()
+      alert('Tu cuenta está desvinculada de la organización. Si crees que es un error, contacta a RRHH.')
+      router.push('/login')
+      return
+    }
+
     setPerfil(perfilData)
 
     if (perfilData?.rol === 'admin' || perfilData?.rol === 'auditor' || perfilData?.rol === 'manager') {
@@ -141,8 +157,11 @@ const toggleArea = (id: number) => {
     const { data: evalData } = await supabase.from('evaluaciones').select('*').eq('empresa_id', perfilDeAcceso?.empresa_id);
     if (areasData) setAreas(areasData); if (evalData) setEvaluaciones(evalData);
     if (empData) {
-      const dataOrdenada = empData.map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) }))
-      setEmpleados(dataOrdenada)
+      const dataOrdenada: Empleado[] = empData.map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) }))
+      // Toda la plataforma (tableros, BI, organigrama, invitaciones) trabaja solo con activos;
+      // los desvinculados se guardan aparte para el histórico.
+      setEmpleados(dataOrdenada.filter(estaActivo))
+      setEmpleadosDesvinculados(dataOrdenada.filter(e => !estaActivo(e)))
       const miFicha = dataOrdenada.find((e: any) => e.email === perfilDeAcceso?.email);
       if (miFicha) setMiDesempeno(miFicha);
     }
@@ -189,7 +208,7 @@ const toggleArea = (id: number) => {
     if (areaLider) {
       setEsLider(true); setAreaLiderada(areaLider); setVista('mi_equipo');
       const { data: equipoData } = await supabase.from('empleados').select('*, indicadores(*), planes_mejora(*, comentarios(*))').eq('area_id', areaLider.id).order('id');
-      if (equipoData) setEquipoLiderado(equipoData.map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) })));
+      if (equipoData) setEquipoLiderado(equipoData.filter(estaActivo).map((emp: any) => ({ ...emp, planes_mejora: emp.planes_mejora.sort((a: Plan, b: Plan) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) })));
     } else { setVista('mi_perfil'); }
   }
 
@@ -548,6 +567,11 @@ const toggleArea = (id: number) => {
       alert(`Ya existe un colaborador registrado con el correo ${emailLimpio}.`);
       return;
     }
+    const exColaborador = empleadosDesvinculados.find(emp => emp.email.trim().toLowerCase() === emailLimpio);
+    if (exColaborador) {
+      alert(`${exColaborador.nombre} (${emailLimpio}) ya estuvo en la organización y está desvinculado.\n\nPara recontratarlo, usa "Reactivar" en la sección de Colaboradores desvinculados: así conserva su histórico.`);
+      return;
+    }
 
     const areaSeleccionada = areaIdEmpleado ? areas.find(a => a.id === parseInt(areaIdEmpleado)) : null;
 
@@ -626,6 +650,134 @@ const toggleArea = (id: number) => {
   async function asignarPadreArea(aid: number, pid: string) { const npid = pid === "" ? null : parseInt(pid); if (npid === aid) return; await supabase.from('areas').update({ parent_id: npid }).eq('id', aid); recargarDatos(); }
   async function asignarLiderArea(aid: number, lid: string) { await supabase.from('areas').update({ lider_id: lid === "" ? null : parseInt(lid) }).eq('id', aid); recargarDatos(); }
   async function asignarAreaEmpleado(eid: number, aid: string) { await supabase.from('empleados').update({ area_id: aid === "" ? null : parseInt(aid) }).eq('id', eid); recargarDatos(); }
+
+  // ==========================================
+  // GESTIÓN DE COLABORADORES Y ÁREAS (ADMIN)
+  // ==========================================
+
+  // Mensaje claro si la columna de estado todavía no existe en Supabase
+  function alertaErrorSupabase(accion: string, error: { message: string }) {
+    const faltaMigracion = /estado_contratacion|fecha_desvinculacion|motivo_desvinculacion/.test(error.message);
+    alert(faltaMigracion
+      ? `No se pudo ${accion}: falta aplicar la migración "estado_contratacion" en Supabase (ver supabase/migrations).`
+      : `No se pudo ${accion}: ${error.message}`);
+  }
+
+  async function guardarEdicionColaborador(emp: Empleado, datos: DatosEdicionColaborador): Promise<boolean> {
+    const areaNueva = datos.area_id ? areas.find(a => a.id === datos.area_id) : undefined;
+    const areasQueLidera = areas.filter(a => a.lider_id === emp.id);
+
+    // Validación de Líder de Área (mismas reglas que al crear)
+    if (datos.tipo_perfil === 'Líder de Área') {
+      if (!areaNueva) { alert("⚠️ Para el perfil 'Líder de Área' debes seleccionar un Área."); return false; }
+      if (areaNueva.lider_id && areaNueva.lider_id !== emp.id) {
+        const liderActual = empleados.find(e => e.id === areaNueva.lider_id);
+        alert(`⛔ El área "${areaNueva.nombre}" ya tiene un líder asignado (${liderActual?.nombre || 'Asignado'}).`);
+        return false;
+      }
+    }
+
+    // Áreas que pierden a su líder: deja de ser 'Líder de Área', o se mueve fuera del área que lideraba
+    const dejaDeSerLider = emp.tipo_perfil === 'Líder de Área' && datos.tipo_perfil !== 'Líder de Área'
+      && datos.tipo_perfil !== 'Manager' && datos.tipo_perfil !== 'Admin';
+    const areasQuePierdenLider = areasQueLidera.filter(a =>
+      dejaDeSerLider || (a.id === emp.area_id && a.id !== datos.area_id)
+    );
+    if (areasQuePierdenLider.length > 0 && !window.confirm(
+      `${emp.nombre} dejará de liderar: ${areasQuePierdenLider.map(a => a.nombre).join(', ')}.\n\n¿Continuar?`
+    )) return false;
+
+    const puestoObj = puestos.find(p => p.id === datos.puesto_id);
+    const { error } = await supabase.from('empleados').update({
+      nombre: datos.nombre,
+      puesto: puestoObj?.nombre || emp.puesto,
+      puesto_id: datos.puesto_id,
+      tipo_perfil: datos.tipo_perfil,
+      area_id: datos.area_id,
+    }).eq('id', emp.id);
+    if (error) { alertaErrorSupabase('guardar los cambios', error); return false; }
+
+    if (areasQuePierdenLider.length > 0) {
+      await supabase.from('areas').update({ lider_id: null }).in('id', areasQuePierdenLider.map(a => a.id));
+    }
+    if (datos.tipo_perfil === 'Líder de Área' && areaNueva && areaNueva.lider_id !== emp.id) {
+      await supabase.from('areas').update({ lider_id: emp.id }).eq('id', areaNueva.id);
+    }
+
+    recargarDatos();
+    return true;
+  }
+
+  async function desvincularColaborador(emp: Empleado, fecha: string, motivo: string): Promise<boolean> {
+    // Se conserva area_id para saber dónde estaba; solo se libera el liderazgo de sus áreas
+    const { error } = await supabase.from('empleados').update({
+      estado_contratacion: 'desvinculado',
+      fecha_desvinculacion: fecha,
+      motivo_desvinculacion: motivo,
+    }).eq('id', emp.id);
+    if (error) { alertaErrorSupabase('desvincular al colaborador', error); return false; }
+
+    const areasQueLidera = areas.filter(a => a.lider_id === emp.id).map(a => a.id);
+    if (areasQueLidera.length > 0) {
+      await supabase.from('areas').update({ lider_id: null }).in('id', areasQueLidera);
+    }
+    setEmpleadoEditando(null);
+    recargarDatos();
+    return true;
+  }
+
+  async function reactivarColaborador(emp: Empleado) {
+    const areaPrevia = areas.find(a => a.id === emp.area_id);
+    if (!window.confirm(
+      `¿Reactivar a ${emp.nombre}?\n\nVolverá a aparecer en la plataforma${areaPrevia ? ` en el área "${areaPrevia.nombre}"` : ' (sin área asignada)'} con todo su histórico, y podrá volver a entrar.`
+    )) return;
+    const { error } = await supabase.from('empleados').update({
+      estado_contratacion: 'activo',
+      fecha_desvinculacion: null,
+      motivo_desvinculacion: null,
+    }).eq('id', emp.id);
+    if (error) { alertaErrorSupabase('reactivar al colaborador', error); return; }
+    recargarDatos();
+  }
+
+  async function renombrarArea(aid: number, nombreNuevo: string): Promise<boolean> {
+    const nombreLimpio = nombreNuevo.trim();
+    if (!nombreLimpio) { alert('El nombre del área no puede estar vacío.'); return false; }
+    if (areas.some(a => a.id !== aid && a.nombre.trim().toLowerCase() === nombreLimpio.toLowerCase())) {
+      alert(`Ya existe un área llamada "${nombreLimpio}".`);
+      return false;
+    }
+    const { error } = await supabase.from('areas').update({ nombre: nombreLimpio }).eq('id', aid);
+    if (error) { alert('No se pudo renombrar el área: ' + error.message); return false; }
+    recargarDatos();
+    return true;
+  }
+
+  async function eliminarArea(area: Area) {
+    const activos = empleados.filter(e => e.area_id === area.id);
+    const subAreas = areas.filter(a => a.parent_id === area.id);
+    if (activos.length > 0 || subAreas.length > 0) {
+      alert(
+        `⛔ No se puede eliminar "${area.nombre}" todavía:\n\n` +
+        (activos.length > 0 ? `• Tiene ${activos.length} colaborador(es) activo(s). Muévelos a otra área.\n` : '') +
+        (subAreas.length > 0 ? `• Tiene sub-áreas que dependen de ella: ${subAreas.map(a => a.nombre).join(', ')}. Cámbiales el "Depende de".\n` : '')
+      );
+      return;
+    }
+    const exMiembros = empleadosDesvinculados.filter(e => e.area_id === area.id);
+    if (!window.confirm(
+      `¿Eliminar definitivamente el área "${area.nombre}"?` +
+      (exMiembros.length > 0 ? `\n\n${exMiembros.length} colaborador(es) desvinculado(s) figuraban en esta área; quedarán "sin área" pero conservan su histórico.` : '')
+    )) return;
+
+    if (exMiembros.length > 0) {
+      const { error } = await supabase.from('empleados').update({ area_id: null }).in('id', exMiembros.map(e => e.id));
+      if (error) { alert('No se pudo liberar el área: ' + error.message); return; }
+    }
+    const { error } = await supabase.from('areas').delete().eq('id', area.id);
+    if (error) { alert('No se pudo eliminar el área: ' + error.message); return; }
+    recargarDatos();
+  }
 
   async function agregarIndicador(eid: number, datosKpi: any) {
   if (!datosKpi.titulo) return;
@@ -983,6 +1135,10 @@ async function confirmarInvitacionMasiva() {
     diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
     eliminarIndicador, actualizarDescripcionPuesto,
     guardarEvaluacionPotencial, guardarFeedbackKPI,verPerfilCompleto: (emp) => setEmpleadoViendoPerfil(emp),
+    ...(esAdmin && {
+      editarColaborador: (emp: Empleado) => setEmpleadoEditando(emp),
+      desvincularColaborador: (emp: Empleado) => setEmpleadoDesvinculando(emp),
+    }),
   };
 
   // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
@@ -1324,10 +1480,45 @@ async function confirmarInvitacionMasiva() {
                         calcularGantt={calcularGantt}
                         puedeEditarEstructura={esAdmin}
                         puedeEditarEmpleado={puedeEditarColaborador}
+                        renombrarArea={esAdmin ? renombrarArea : undefined}
+                        eliminarArea={esAdmin ? eliminarArea : undefined}
                       />
                     );
                   })}
                 </div>
+
+                {/* Ex-colaboradores: se conservan para el histórico */}
+                {esAdmin && (
+                  <SeccionDesvinculados
+                    desvinculados={empleadosDesvinculados}
+                    areas={areas}
+                    onVerHistorial={(emp) => setEmpleadoViendoPerfil(emp)}
+                    onReactivar={reactivarColaborador}
+                  />
+                )}
+
+                {/* Modales de edición / desvinculación */}
+                {esAdmin && empleadoEditando && (
+                  <ModalEditarColaborador
+                    key={empleadoEditando.id}
+                    emp={empleadoEditando}
+                    puestos={puestos}
+                    areas={areas}
+                    roles={ROLES_DISPONIBLES}
+                    onClose={() => setEmpleadoEditando(null)}
+                    onSave={guardarEdicionColaborador}
+                    onDesvincular={(emp) => setEmpleadoDesvinculando(emp)}
+                  />
+                )}
+                {esAdmin && empleadoDesvinculando && (
+                  <ModalDesvincularColaborador
+                    key={empleadoDesvinculando.id}
+                    emp={empleadoDesvinculando}
+                    esLiderDe={areas.filter(a => a.lider_id === empleadoDesvinculando.id).map(a => a.nombre)}
+                    onClose={() => setEmpleadoDesvinculando(null)}
+                    onConfirm={desvincularColaborador}
+                  />
+                )}
 
                 {/* Modal de Creación Individual */}
                   {esAdmin && modalNuevoEmpAbierto && (

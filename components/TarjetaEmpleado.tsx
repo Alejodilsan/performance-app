@@ -80,13 +80,37 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
               {emp.cumplimiento_general}%
             </span>
             <span className="block text-[9px] uppercase font-bold text-slate-400 mt-0.5 mb-2">Score</span>
-            <button 
+            <button
               type="button"
               onClick={() => funciones.verPerfilCompleto?.(emp)}
               className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1 border border-blue-100"
             >
               👁️ Ver Curva
             </button>
+            {(funciones.editarColaborador || funciones.desvincularColaborador) && (
+              <div className="flex items-center gap-1 mt-1.5">
+                {funciones.editarColaborador && (
+                  <button
+                    type="button"
+                    onClick={() => funciones.editarColaborador?.(emp)}
+                    title="Editar datos del colaborador"
+                    className="text-[10px] font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg hover:bg-slate-100 border border-slate-200"
+                  >
+                    ✏️ Editar
+                  </button>
+                )}
+                {funciones.desvincularColaborador && (
+                  <button
+                    type="button"
+                    onClick={() => funciones.desvincularColaborador?.(emp)}
+                    title="Desvincular (conserva el histórico)"
+                    className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg hover:bg-red-100 border border-red-100"
+                  >
+                    Baja
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
