@@ -1,0 +1,96 @@
+// Tipos de dominio compartidos por el dashboard y sus componentes
+
+export type TipoPerfil = 'Admin' | 'Manager' | 'Líder de Área' | 'Empleado' | 'Auditor';
+
+export interface Puesto {
+  id: number;
+  nombre: string;
+  empresa_id?: number;
+}
+
+// --- TIPOS DE DATOS ---
+export interface Area { id: number; nombre: string; lider_id: number | null; parent_id: number | null; children?: Area[]; empleados?: Empleado[]; }
+export interface Indicador { 
+  id: number; 
+  titulo: string; 
+  progreso: number; 
+  descripcion?: string; 
+  unidad_medida?: string; 
+  meta_esperada?: number; 
+  resultado_actual?: number;
+  direccion?: 'creciente' | 'decreciente';
+  periodo?: 'mensual' | 'trimestral' | 'semestral' | 'anual';
+  feedback_lider?: string; 
+  fecha_feedback?: string;
+}
+export interface DimensionPotencial {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  nota: number; // Calificación de 1 a 5
+  peso: number; // Porcentaje de 0 a 100
+}
+export interface Comentario { id: number; autor: string; texto: string; created_at: string; }
+export interface Plan { id: number; compromiso: string; estado: string; fecha_limite: string; created_at: string; comentarios?: Comentario[]; }
+export interface Evaluacion { id: number; evaluador_id: number; evaluado_id: number; tipo: string; puntuacion: number; feedback: string; created_at: string; }
+export interface HistoricoCumplimiento {
+  id?: number;
+  empleado_id: number;
+  empresa_id?: number;
+  periodo: string;
+  cumplimiento: number;
+  potencial_score?: number;
+  total_kpis?: number;
+  fecha_corte: string;
+}
+export interface Empleado { 
+  id: number; 
+  nombre: string; 
+  puesto: string; 
+  puesto_id?: number | null;
+  tipo_perfil?: TipoPerfil;
+  job_descripcion?: string; 
+  email: string; 
+  cumplimiento_general: number; 
+  area_id: number | null; 
+  potencial_score?: 1 | 2 | 3; 
+  indicadores?: Indicador[]; 
+  planes_mejora?: Plan[]; 
+  historico?: HistoricoCumplimiento[];
+  } 
+
+export interface Perfil {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: 'admin' | 'manager' | 'lider_area' | 'empleado' | 'auditor';
+  empresa_id: number;
+}
+
+export interface FuncionesTarjeta {
+  asignarAreaEmpleado: (eid: number, aid: string) => Promise<void>;
+  actualizarIndicador: (id: number, val: number, eid: number) => Promise<void>;
+  actualizarPotencial?: (eid: number, val: number) => Promise<void>;
+  agregarIndicador: (eid: number, datosKpi: any) => Promise<void>;
+  eliminarIndicador: (id: number) => Promise<void>;
+  crearPlan: (eid: number) => Promise<void>;
+  completarPlan: (pid: number, est: string) => Promise<void>;
+  setExpandidoId: (id: number | null) => void;
+  expandidoId: number | null;
+  nuevosIndicadores: { [key: number]: string };
+  setNuevosIndicadores: (v: { [key: number]: string }) => void;
+  textosPlanes: { [key: number]: string };
+  setTextosPlanes: (v: { [key: number]: string }) => void;
+  diasPlanes: { [key: number]: number };
+  setDiasPlanes: (v: { [key: number]: number }) => void;
+  calcularGantt: (creado: string, limite: string) => any;
+  planChatAbierto: number | null;
+  setPlanChatAbierto: (id: number | null) => void;
+  enviarComentario: (pid: number) => Promise<void>;
+  nuevosComentarios: { [key: number]: string };
+  setNuevosComentarios: (v: { [key: number]: string }) => void;
+  actualizarDescripcionPuesto?: (eid: number, desc: string) => Promise<void>;
+  guardarEvaluacionPotencial?: (eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) => Promise<void>;
+  guardarFeedbackKPI?: (kpiId: number, eid: number, feedback: string) => Promise<void>;
+  verPerfilCompleto?: (emp: Empleado) => void;
+}
