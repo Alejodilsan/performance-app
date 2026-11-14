@@ -1,7 +1,11 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { activarMiCuenta, debeCambiarClave } from '@/lib/accesos'
+import { mensajeDeError } from '@/lib/errores'
+
+const LARGO_MINIMO = 8
 
 export default function ActualizarClave() {
   // 1. LA MEMORIA DE LA PÁGINA
@@ -9,8 +13,17 @@ export default function ActualizarClave() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [mensaje, setMensaje] = useState({ texto: '', tipo: '' })
-  
+  // Primer ingreso con clave temporal (vs. cambio de clave desde un enlace de recuperación)
+  const [primerIngreso, setPrimerIngreso] = useState(false)
+
   const router = useRouter()
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return }
+      setPrimerIngreso(debeCambiarClave(session.user.app_metadata))
+    })
+  }, [router])
 
   // 2. FUNCIÓN: GUARDAR NUEVA CLAVE
   const handleUpdatePassword = async (e: React.FormEvent) => {
@@ -21,21 +34,43 @@ export default function ActualizarClave() {
       setMensaje({ texto: 'Las contraseñas no coinciden. Intenta de nuevo.', tipo: 'error' })
       return
     }
-    if (password.length < 6) {
-      setMensaje({ texto: 'La contraseña debe tener al menos 6 caracteres.', tipo: 'error' })
+    if (password.length < LARGO_MINIMO) {
+      setMensaje({ texto: `La contraseña debe tener al menos ${LARGO_MINIMO} caracteres.`, tipo: 'error' })
       return
     }
 
     setLoading(true)
     setMensaje({ texto: '', tipo: '' })
 
-    // Supabase actualiza la clave del usuario que hizo clic en el enlace
+    // Supabase actualiza la clave del usuario con sesión activa
     const { error } = await supabase.auth.updateUser({
       password: password
     })
 
     if (error) {
-      setMensaje({ texto: 'Hubo un error. Es posible que el enlace haya expirado.', tipo: 'error' })
+      const igualALaAnterior = /different from the old password|same/i.test(error.message)
+      setMensaje({
+        texto: igualALaAnterior
+          ? 'La nueva contraseña debe ser distinta a la clave temporal.'
+          : primerIngreso ? `No se pudo guardar la contraseña: ${error.message}` : 'Hubo un error. Es posible que el enlace haya expirado.',
+        tipo: 'error'
+      })
+      setLoading(false)
+      return
+    }
+
+    if (primerIngreso) {
+      // Marca la cuenta como activa y refresca la sesión para que deje de exigir el cambio de clave
+      try {
+        await activarMiCuenta()
+        await supabase.auth.refreshSession()
+      } catch (e) {
+        setMensaje({ texto: `Tu contraseña se guardó, pero no pudimos activar tu cuenta: ${mensajeDeError(e)}. Intenta entrar de nuevo.`, tipo: 'error' })
+        setLoading(false)
+        return
+      }
+      setMensaje({ texto: '¡Listo! Tu cuenta está activa. Entrando...', tipo: 'exito' })
+      setTimeout(() => router.push('/'), 1200)
     } else {
       setMensaje({ texto: '¡Clave actualizada con éxito! Redirigiendo...', tipo: 'exito' })
       // Esperamos 2 segundos para que lea el mensaje de éxito y lo mandamos al Login
@@ -43,7 +78,7 @@ export default function ActualizarClave() {
         router.push('/login')
       }, 2000)
     }
-    
+
     setLoading(false)
   }
 
@@ -56,8 +91,12 @@ export default function ActualizarClave() {
           <div className="w-12 h-12 bg-emerald-600 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-emerald-200">
             <span className="text-2xl text-white">🔒</span>
           </div>
-          <h1 className="text-2xl font-black text-slate-800">Crea tu nueva clave</h1>
-          <p className="text-sm text-slate-500 mt-2">Ingresa una contraseña segura para tu cuenta</p>
+          <h1 className="text-2xl font-black text-slate-800">{primerIngreso ? '¡Bienvenido! Crea tu contraseña' : 'Crea tu nueva clave'}</h1>
+          <p className="text-sm text-slate-500 mt-2">
+            {primerIngreso
+              ? 'Entraste con una clave temporal. Elige tu propia contraseña para activar tu cuenta.'
+              : 'Ingresa una contraseña segura para tu cuenta'}
+          </p>
         </div>
 
         {mensaje.texto && (
@@ -72,7 +111,7 @@ export default function ActualizarClave() {
             <input 
               type="password" 
               className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm" 
-              placeholder="Mínimo 6 caracteres"
+              placeholder={`Mínimo ${LARGO_MINIMO} caracteres`}
               value={password} 
               onChange={e => setPassword(e.target.value)} 
               required 

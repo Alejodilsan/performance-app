@@ -60,6 +60,11 @@ export interface Empleado {
   estado_contratacion?: EstadoContratacion;
   fecha_desvinculacion?: string | null;
   motivo_desvinculacion?: string | null;
+  // Acceso a la plataforma (ver lib/accesos.ts)
+  user_id?: string | null;
+  estado_acceso?: 'sin_invitar' | 'invitado' | 'activo';
+  fecha_invitacion?: string | null;
+  fecha_activacion?: string | null;
   }
 
 // Un colaborador que sale de la organización no se borra: queda 'desvinculado' para conservar su histórico.

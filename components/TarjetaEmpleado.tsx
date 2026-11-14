@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
+import { ETIQUETA_ESTADO_ACCESO } from '@/lib/accesos'
 import { FormularioNuevoKPI } from './FormularioNuevoKPI'
 import { ModalEvaluacionPotencial } from './ModalEvaluacionPotencial'
 
@@ -72,6 +73,15 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                   <span title={emp.job_descripcion} className="cursor-help text-xs text-slate-400 hover:text-slate-600">ℹ️</span>
                 )}
               </div>
+              {/* Estado de acceso a la plataforma: solo lo ve el Admin */}
+              {funciones.editarColaborador && (() => {
+                const estado = ETIQUETA_ESTADO_ACCESO[emp.estado_acceso || 'sin_invitar'];
+                return (
+                  <span className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${estado.clase}`} title="Estado de acceso a la plataforma">
+                    🔑 {estado.texto}
+                  </span>
+                );
+              })()}
             </div>
           </div>
 

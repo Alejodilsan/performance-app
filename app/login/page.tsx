@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { debeCambiarClave } from '@/lib/accesos'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -44,10 +45,20 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     setMensaje({ texto: '', tipo: '' })
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setMensaje({ texto: 'Credenciales incorrectas. Verifica tu correo y clave.', tipo: 'error' })
+      // Una cuenta bloqueada (colaborador desvinculado) también llega aquí
+      const bloqueada = /banned/i.test(error.message)
+      setMensaje({
+        texto: bloqueada
+          ? 'Tu acceso está deshabilitado. Si crees que es un error, contacta a RRHH.'
+          : 'Credenciales incorrectas. Verifica tu correo y clave.',
+        tipo: 'error'
+      })
       setLoading(false)
+    } else if (debeCambiarClave(data.user?.app_metadata)) {
+      // Entró con su clave temporal: primero debe crear su propia contraseña
+      router.push('/actualizar-clave')
     } else {
       router.push('/')
     }

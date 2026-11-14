@@ -13,6 +13,8 @@ import { ModalEditarColaborador, type DatosEdicionColaborador } from '@/componen
 import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColaborador'
 import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
 import { ArbolAreas } from '@/components/ArbolAreas'
+import { ModalAccesos } from '@/components/ModalAccesos'
+import { otorgarAccesos, sincronizarRol, revocarAcceso, restaurarAcceso, debeCambiarClave } from '@/lib/accesos'
 import { construirJerarquia, filtrarJerarquia, idsDescendientes, coincideEmpleado, normalizarTexto } from '@/lib/jerarquia'
 import { BotonLateral } from '@/components/BotonLateral'
 import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
@@ -21,6 +23,7 @@ import { TarjetaSaludArea } from '@/components/TarjetaSaludArea'
 import { TarjetaEmpleado } from '@/components/TarjetaEmpleado'
 import { MatrizNineBox } from '@/components/MatrizNineBox'
 import { ModalPerfilColaborador } from '@/components/ModalPerfilColaborador'
+import { mensajeDeError } from '@/lib/errores'
 
 export default function DashboardPerformance() {
   const [empleados, setEmpleados] = useState<Empleado[]>([]) // solo activos
@@ -33,10 +36,8 @@ export default function DashboardPerformance() {
   const [miDesempeno, setMiDesempeno] = useState<Empleado | null>(null)
   const [perfil, setPerfil] = useState<Perfil | null>(null)
   const [loading, setLoading] = useState(true)
-  const [invitando, setInvitando] = useState(false)
   // Estados para el Modal de Invitaciones Inteligentes
   const [modalInvitarAbierto, setModalInvitarAbierto] = useState(false);
-  const [empleadosSeleccionadosParaInvitar, setEmpleadosSeleccionadosParaInvitar] = useState<number[]>([]);
   // Estados para el Modal de Corte Oficial
   const [modalCorteAbierto, setModalCorteAbierto] = useState(false);
   const MESES_ANIO = [
@@ -127,6 +128,8 @@ const toggleArea = (id: number) => {
   async function verificarUsuario() {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push('/login'); return }
+    // Primer ingreso con clave temporal: debe crear su propia contraseña antes de usar la plataforma
+    if (debeCambiarClave(session.user.app_metadata)) { router.push('/actualizar-clave'); return }
     const { data: perfilData } = await supabase.from('perfiles').select('*').eq('id', session.user.id).single()
 
     // Un colaborador desvinculado conserva su histórico pero ya no puede entrar a la plataforma
@@ -677,6 +680,11 @@ const toggleArea = (id: number) => {
   }
 
   async function guardarEdicionColaborador(emp: Empleado, datos: DatosEdicionColaborador): Promise<boolean> {
+    const cambiaTipoPerfil = (emp.tipo_perfil || 'Empleado') !== datos.tipo_perfil;
+    if (cambiaTipoPerfil && emp.email.trim().toLowerCase() === perfil?.email?.trim().toLowerCase()) {
+      alert('⛔ No puedes cambiar tu propio tipo de perfil: perderías tus permisos de administración. Pídeselo a otro Admin.');
+      return false;
+    }
     const areaNueva = datos.area_id ? areas.find(a => a.id === datos.area_id) : undefined;
     const areasQueLidera = areas.filter(a => a.lider_id === emp.id);
 
@@ -717,11 +725,23 @@ const toggleArea = (id: number) => {
       await supabase.from('areas').update({ lider_id: emp.id }).eq('id', areaNueva.id);
     }
 
+    // El tipo de perfil define los permisos: si ya tiene cuenta, se actualiza su rol de acceso
+    if (cambiaTipoPerfil && emp.user_id) {
+      try { await sincronizarRol(emp.id); }
+      catch (e) {
+        alert(`Los datos se guardaron, pero no se pudieron actualizar sus permisos de acceso:\n${mensajeDeError(e)}`);
+      }
+    }
+
     recargarDatos();
     return true;
   }
 
   async function desvincularColaborador(emp: Empleado, fecha: string, motivo: string): Promise<boolean> {
+    if (emp.email.trim().toLowerCase() === perfil?.email?.trim().toLowerCase()) {
+      alert('⛔ No puedes desvincularte a ti mismo. Pídeselo a otro Admin.');
+      return false;
+    }
     // Se conserva area_id para saber dónde estaba; solo se libera el liderazgo de sus áreas
     const { error } = await supabase.from('empleados').update({
       estado_contratacion: 'desvinculado',
@@ -733,6 +753,11 @@ const toggleArea = (id: number) => {
     const areasQueLidera = areas.filter(a => a.lider_id === emp.id).map(a => a.id);
     if (areasQueLidera.length > 0) {
       await supabase.from('areas').update({ lider_id: null }).in('id', areasQueLidera);
+    }
+    // Bloquea su inicio de sesión en Supabase (no solo en la app)
+    if (emp.user_id) {
+      try { await revocarAcceso(emp.id); }
+      catch (e) { alert(`Quedó desvinculado, pero no se pudo bloquear su cuenta de acceso:\n${mensajeDeError(e)}`); }
     }
     setEmpleadoEditando(null);
     recargarDatos();
@@ -750,6 +775,10 @@ const toggleArea = (id: number) => {
       motivo_desvinculacion: null,
     }).eq('id', emp.id);
     if (error) { alertaErrorSupabase('reactivar al colaborador', error); return; }
+    if (emp.user_id) {
+      try { await restaurarAcceso(emp.id); }
+      catch (e) { alert(`Quedó reactivado, pero no se pudo desbloquear su cuenta de acceso:\n${mensajeDeError(e)}`); }
+    }
     recargarDatos();
   }
 
@@ -971,65 +1000,14 @@ const toggleArea = (id: number) => {
       recargarDatos();
     }
   }
+  // Dar acceso a la plataforma (clave temporal). La lógica vive en /api/accesos (servidor).
   function abrirModalInvitacion() {
-  const candidatos = empleados.filter(emp => emp.email !== perfil?.email);
-  if (candidatos.length === 0) {
-    alert("No hay colaboradores en la plataforma para invitar.");
-    return;
-  }
-  setEmpleadosSeleccionadosParaInvitar(candidatos.map(e => e.id));
-  setModalInvitarAbierto(true);
-}
-
-  const invitarEquipo = abrirModalInvitacion;
-
-function toggleSeleccionInvitacion(id: number) {
-  setEmpleadosSeleccionadosParaInvitar(prev => 
-    prev.includes(id) ? prev.filter(eId => eId !== id) : [...prev, id]
-  );
-}
-
-function toggleSeleccionarTodos() {
-  const candidatos = empleados.filter(emp => emp.email !== perfil?.email);
-  // Si ya están todos seleccionados, los deseleccionamos (vaciamos el array)
-  if (empleadosSeleccionadosParaInvitar.length === candidatos.length) {
-    setEmpleadosSeleccionadosParaInvitar([]);
-  } else {
-    // Si no están todos, los seleccionamos a todos
-    setEmpleadosSeleccionadosParaInvitar(candidatos.map(e => e.id));
-  }
-}
-
-async function confirmarInvitacionMasiva() {
-  const empleadosAInvitar = empleados.filter(emp => empleadosSeleccionadosParaInvitar.includes(emp.id));
-  
-  if (empleadosAInvitar.length === 0) {
-    alert("Debes seleccionar al menos un colaborador.");
-    return;
-  }
-
-  setInvitando(true);
-  try {
-    const res = await fetch('/api/invitar', { 
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ empleados: empleadosAInvitar }) 
-    });
-    
-    const data = await res.json();
-    
-    if (res.ok) {
-      alert(data.mensaje); 
-      setModalInvitarAbierto(false);
-      recargarDatos(); 
-    } else {
-      alert(`Error: ${data.mensaje}`);
+    if (empleados.filter(emp => emp.email !== perfil?.email).length === 0) {
+      alert("No hay colaboradores en la plataforma para dar acceso.");
+      return;
     }
-  } catch (error) { 
-    alert("Error de conexión con el servidor."); 
+    setModalInvitarAbierto(true);
   }
-  setInvitando(false);
-}
 
   const esAdmin = perfil?.rol === 'admin';
   const esAuditor = perfil?.rol === 'auditor';
@@ -1279,10 +1257,9 @@ async function confirmarInvitacionMasiva() {
 
                 <button
                   onClick={abrirModalInvitacion}
-                  disabled={invitando}
                   className="bg-[#FF4C4C] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2"
                 >
-                  <span>✨</span> {invitando ? 'Enviando...' : 'Invitar Equipo'}
+                  <span>🔑</span> Dar Acceso
                 </button>
 
                 <div className="flex items-center gap-2">
@@ -2106,96 +2083,11 @@ async function confirmarInvitacionMasiva() {
 
             {/* MODAL DE INVITACIONES INTELIGENTES */}
             {modalInvitarAbierto && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] border border-slate-100 animate-in zoom-in-95 duration-200">
-                  
-                  {/* Header del Modal */}
-                  <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/70 shrink-0">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-800">Invitar al Equipo</h3>
-                      <p className="text-xs text-slate-500">Selecciona los colaboradores que recibirán acceso</p>
-                    </div>
-                    <button 
-                      onClick={() => setModalInvitarAbierto(false)}
-                      className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold hover:bg-slate-200 flex items-center justify-center transition"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  {/* Barra de Selección Masiva */}
-                  <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
-                    <span className="text-xs text-slate-500 font-medium">
-                      {empleados.filter(e => e.email !== perfil?.email).length} colaboradores disponibles
-                    </span>
-                    <button 
-                      onClick={toggleSeleccionarTodos}
-                      className="text-xs font-bold text-[#FF4C4C] hover:underline"
-                    >
-                      {empleadosSeleccionadosParaInvitar.length === empleados.filter(e => e.email !== perfil?.email).length 
-                        ? 'Deseleccionar todos' 
-                        : 'Seleccionar todos'
-                      }
-                    </button>
-                  </div>
-
-                  {/* Lista scrolleable de empleados */}
-                  <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
-                    <div className="space-y-3">
-                      {empleados.filter(e => e.email !== perfil?.email).map(emp => {
-                        const seleccionado = empleadosSeleccionadosParaInvitar.includes(emp.id);
-                        return (
-                          <label 
-                            key={emp.id} 
-                            className={`flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all ${
-                              seleccionado ? 'bg-red-50/50 border-[#FF4C4C]/40 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
-                            }`}
-                          >
-                            <div className="shrink-0 ml-1">
-                              <input 
-                                type="checkbox" 
-                                checked={seleccionado}
-                                onChange={() => toggleSeleccionInvitacion(emp.id)}
-                                className="w-4 h-4 rounded border-slate-300 text-[#FF4C4C] focus:ring-[#FF4C4C] accent-[#FF4C4C] cursor-pointer"
-                              />
-                            </div>
-                            <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm shrink-0">
-                              {emp.nombre.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-slate-800 truncate">{emp.nombre}</p>
-                              <p className="text-xs text-slate-500 truncate">{emp.email} • {emp.puesto}</p>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Footer del Modal con botón de confirmación */}
-                  <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-between items-center shrink-0">
-                    <span className="text-sm font-bold text-slate-600">
-                      <span className="text-[#FF4C4C]">{empleadosSeleccionadosParaInvitar.length}</span> seleccionados
-                    </span>
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={() => setModalInvitarAbierto(false)}
-                        className="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={confirmarInvitacionMasiva}
-                        disabled={invitando || empleadosSeleccionadosParaInvitar.length === 0}
-                        className="bg-[#FF4C4C] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {invitando ? 'Procesando...' : `Invitar (${empleadosSeleccionadosParaInvitar.length})`}
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
+              <ModalAccesos
+                candidatos={empleados.filter(e => e.email !== perfil?.email)}
+                onClose={() => { setModalInvitarAbierto(false); recargarDatos(); }}
+                onOtorgar={otorgarAccesos}
+              />
             )}
             {empleadoViendoPerfil && (
               <ModalPerfilColaborador 
