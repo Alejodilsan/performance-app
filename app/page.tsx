@@ -4,8 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import * as XLSX from 'xlsx'
 import {
-  AreaChart, Area as RechartsArea, ReferenceLine, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
+  AreaChart, Area as RechartsArea, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import ExcelJS from 'exceljs'
 import { estaActivo, type TipoPerfil, type Puesto, type Area, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion } from '@/lib/tipos'
@@ -18,6 +17,7 @@ import { ModalAccesos } from '@/components/ModalAccesos'
 import { cargarDatosSesion, type RespuestaDatos, type EntradaDirectorio } from '@/lib/datos'
 import type { Alcance } from '@/lib/alcance'
 import { ReporteEvaluaciones } from '@/components/ReporteEvaluaciones'
+import { HistorialEmpleado } from '@/components/HistorialEmpleado'
 import { otorgarAccesos, sincronizarRol, type ResultadoOtorgar, revocarAcceso, restaurarAcceso, debeCambiarClave } from '@/lib/accesos'
 import { construirJerarquia, filtrarJerarquia, idsDescendientes, coincideEmpleado, normalizarTexto } from '@/lib/jerarquia'
 import { BotonLateral } from '@/components/BotonLateral'
@@ -25,7 +25,9 @@ import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
 import { construirArbol, NodoOrganigrama } from '@/components/Organigrama'
 import { TarjetaSaludArea } from '@/components/TarjetaSaludArea'
 import { TarjetaEmpleado } from '@/components/TarjetaEmpleado'
-import { MatrizNineBox } from '@/components/MatrizNineBox'
+import { PanelBI } from '@/components/bi/PanelBI'
+import { ProveedorUmbrales } from '@/lib/umbrales'
+import { CONFIG_BI_DEFECTO, type UmbralesDesempeno } from '@/lib/bi'
 import { ModalPerfilColaborador } from '@/components/ModalPerfilColaborador'
 import { mensajeDeError } from '@/lib/errores'
 
@@ -80,6 +82,8 @@ export default function DashboardPerformance() {
   // Alcance de visibilidad (lib/alcance.ts) y directorio mínimo para el organigrama informativo
   const [alcance, setAlcance] = useState<Alcance | null>(null)
   const [directorio, setDirectorio] = useState<EntradaDirectorio[]>([])
+  // Umbrales de desempeño de la empresa (configurables en el BI); los usan todas las pantallas
+  const [umbrales, setUmbrales] = useState<UmbralesDesempeno>(CONFIG_BI_DEFECTO)
   const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_perfil' | 'evaluaciones'>('tablero')
 
   const [nuevaAreaNombre, setNuevaAreaNombre] = useState(''); const [nuevaAreaPadre, setNuevaAreaPadre] = useState<string>("");
@@ -162,6 +166,7 @@ const toggleArea = (id: number) => {
     setDirectorio(datos.directorio)
     setAlcance(datos.alcance)
     if (datos.monedaPreferida) setMonedaPreferida(datos.monedaPreferida)
+    if (datos.umbrales) setUmbrales(datos.umbrales)
 
     // Toda la plataforma (tableros, BI, organigrama, invitaciones) trabaja solo con activos;
     // los desvinculados (solo los recibe el Admin) se guardan aparte para el histórico.
@@ -1026,33 +1031,6 @@ const toggleArea = (id: number) => {
     if (texto && vista !== 'tablero') setVista('tablero');
   }
 
-  const metricasBI = useMemo(() => {
-    const total = dataParaMetricas.length;
-    const prom = total > 0 ? Math.round(dataParaMetricas.reduce((a, b) => a + b.cumplimiento_general, 0) / total) : 0;
-    const bajo = dataParaMetricas.filter(e => e.cumplimiento_general < 60).length;
-    const medio = dataParaMetricas.filter(e => e.cumplimiento_general >= 60 && e.cumplimiento_general < 85).length;
-    const alto = dataParaMetricas.filter(e => e.cumplimiento_general >= 85).length;
-    const distribucion = [{ name: 'Riesgo (<60%)', value: bajo, color: '#EF4444' }, { name: 'Estándar (60-85%)', value: medio, color: '#F59E0B' }, { name: 'Alto (>85%)', value: alto, color: '#10B981' }].filter(d => d.value > 0);
-    const todosPlanes = dataParaMetricas.flatMap(e => e.planes_mejora || []);
-    const pendientes = todosPlanes.filter(p => p.estado === 'pendiente').length;
-    const completados = todosPlanes.filter(p => p.estado === 'completado').length;
-    const ranking = [...dataParaMetricas].sort((a, b) => b.cumplimiento_general - a.cumplimiento_general);
-    const top5 = ranking.slice(0, 5);
-    const bottom5 = [...ranking].reverse().slice(0, 5).filter(e => e.cumplimiento_general < 70);
-    const datosArea = areas.map(area => {
-      const miembros = empleados.filter(e => e.area_id === area.id);
-      const promArea = miembros.length > 0 ? Math.round(miembros.reduce((acc, curr) => acc + curr.cumplimiento_general, 0) / miembros.length) : 0;
-      return { name: area.nombre, promedio: promArea, cantidad: miembros.length, lider: area.lider_id ? empleados.find(e => e.id === area.lider_id)?.nombre : 'Sin Asignar' };
-    }).filter(d => d.cantidad > 0).sort((a, b) => b.promedio - a.promedio);
-    const misEvals = esAdmin ? evaluaciones : evaluaciones.filter(ev => dataParaMetricas.some(emp => emp.id === ev.evaluado_id || emp.id === ev.evaluador_id));
-    const promEvals = misEvals.length > 0 ? (misEvals.reduce((acc, curr) => acc + curr.puntuacion, 0) / misEvals.length).toFixed(1) : "0.0";
-    const evalsPorTipo = [
-      { name: 'Autoevaluación', value: misEvals.filter(e => e.tipo === 'autoevaluacion').length, fill: '#8b5cf6' },
-      { name: 'Ascendente', value: misEvals.filter(e => e.tipo === 'ascendente').length, fill: '#ec4899' },
-      { name: 'Descendente', value: misEvals.filter(e => e.tipo === 'descendente').length, fill: '#0ea5e9' }
-    ].filter(d => d.value > 0);
-    return { total, prom, distribucion, pendientes, completados, datosArea, top5, bottom5, promEvals, evalsPorTipo, totalEvals: misEvals.length };
-  }, [dataParaMetricas, areas, empleados, evaluaciones, esAdmin]);
 
   // A quién evalúa "hacia arriba": su jefe directo o, si no tiene, el líder de su área
   const miAreaInfo = areas.find(a => a.id === miDesempeno?.area_id);
@@ -1090,6 +1068,7 @@ const toggleArea = (id: number) => {
 
   // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
   return (
+    <ProveedorUmbrales value={umbrales}>
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans">
       
       {/* ========================================== */}
@@ -1565,73 +1544,15 @@ const toggleArea = (id: number) => {
             ))}
 
             {/* --- CONTENIDO: INFORMES (BI) --- */}
-            {vista === 'informes' && (
-              <div className="animate-in slide-in-from-bottom-4 space-y-6">
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-2xl shadow-sm text-white border border-slate-700">
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Rendimiento</p>
-                    <h3 className="text-4xl font-black">{metricasBI.prom}%</h3>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Headcount</p>
-                    <h3 className="text-3xl font-black text-slate-800">{metricasBI.total}</h3>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Planes Abiertos</p>
-                    <h3 className="text-3xl font-black text-amber-500">{metricasBI.pendientes}</h3>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Logros (Done)</p>
-                    <h3 className="text-3xl font-black text-emerald-500">{metricasBI.completados}</h3>
-                  </div>
-                  <div className="bg-gradient-to-br from-[#FF4C4C] to-red-600 p-5 rounded-2xl shadow-sm text-white">
-                    <p className="text-red-100 text-xs font-bold uppercase tracking-wider mb-1">Clima (Eval)</p>
-                    <h3 className="text-4xl font-black flex items-center gap-2">{metricasBI.promEvals} <span className="text-lg">⭐</span></h3>
-                  </div>
-                </div>
-
-                <MatrizNineBox empleados={dataParaMetricas} />
-
-                {/* Graficos (BarChart y PieChart) */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {esAdmin && (
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
-                      <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">📊 Performance Index por Área</h3>
-                        <span className="text-xs bg-slate-50 border border-slate-200 text-slate-500 px-2 py-1 rounded font-medium">Mayor a Menor</span>
-                      </div>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={metricasBI.datosArea} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
-                            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
-                            <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                            <Bar dataKey="promedio" radius={[6, 6, 0, 0]} barSize={35}>
-                              {metricasBI.datosArea.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.promedio >= 80 ? '#10b981' : entry.promedio >= 60 ? '#3b82f6' : '#FF4C4C'} />))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  )}
-                  <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 ${!esAdmin ? 'lg:col-span-3' : ''}`}>
-                    <h3 className="font-bold text-slate-800 mb-2">🎯 Distribución Talentos</h3>
-                    <p className="text-xs text-slate-500 mb-4">Mapeo de la organización según rendimiento general.</p>
-                    <div className="h-56 flex justify-center">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={metricasBI.distribucion} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={5} dataKey="value" stroke="none" label={({ name, percent }: any) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                            {metricasBI.distribucion.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                          </Pie>
-                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: 'bold', color: '#333' }} />
-                          <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            {vista === 'informes' && puedeVerTablero && (
+              <PanelBI
+                empleados={dataParaMetricas}
+                areasAlcance={areasVisibles}
+                areas={areas}
+                etiquetaAlcance={esAdmin || esAuditor ? '🏢 Toda la organización' : `🧭 Tu equipo (${dataParaMetricas.length})`}
+                onVerFicha={(emp) => setEmpleadoViendoPerfil(emp)}
+                onConfiguracionGuardada={(c) => setUmbrales({ umbral_desempeno_bajo: c.umbral_desempeno_bajo, umbral_desempeno_alto: c.umbral_desempeno_alto })}
+              />
             )}
 
            {/* --- CONTENIDO: MI PERFIL (CURVA DE CUMPLIMIENTO HISTÓRICO) --- */}
@@ -1813,6 +1734,9 @@ const toggleArea = (id: number) => {
                     </div>
                   </div>
 
+
+                  {/* Historial laboral propio (sin ajustes salariales, que solo ve el Admin) */}
+                  <HistorialEmpleado empleadoId={miDesempeno.id} fechaIngreso={miDesempeno.fecha_ingreso} />
                 </div>
               );
             })()}
@@ -1983,5 +1907,6 @@ const toggleArea = (id: number) => {
         </main>
       </div>
     </div>
+    </ProveedorUmbrales>
   );
 }

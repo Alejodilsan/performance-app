@@ -4,6 +4,7 @@ import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { ETIQUETA_ESTADO_ACCESO } from '@/lib/accesos'
 import { FormularioNuevoKPI } from './FormularioNuevoKPI'
 import { ModalEvaluacionPotencial } from './ModalEvaluacionPotencial'
+import { useUmbrales, coloresDesempeno } from '@/lib/umbrales'
 
 interface PropsTarjeta {
   emp: Empleado;
@@ -25,8 +26,9 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
   const estaExpandido = expandidoId === emp.id;
   const planesActivos = emp.planes_mejora?.filter(p => p.estado !== 'completado') || [];
   const planesVencidos = planesActivos.filter(p => calcularGantt(p.created_at, p.fecha_limite).esVencido);
-  const colorDesempeno = emp.cumplimiento_general >= 85 ? 'text-emerald-600' : emp.cumplimiento_general >= 70 ? 'text-blue-600' : 'text-[#FF4C4C]';
-  const barBg = emp.cumplimiento_general >= 85 ? 'bg-emerald-500' : emp.cumplimiento_general >= 70 ? 'bg-blue-600' : 'bg-[#FF4C4C]';
+  const umbrales = useUmbrales();
+  const colorDesempeno = coloresDesempeno(emp.cumplimiento_general, umbrales).texto;
+  const barBg = coloresDesempeno(emp.cumplimiento_general, umbrales).barra;
   const [modalPotencialAbierto, setModalPotencialAbierto] = useState(false);
 
   // --- FILTRO Y CÁLCULO POR PERIODO ---
@@ -269,7 +271,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                         <span className="truncate text-sm">{ind.titulo}</span>
                         <span className="text-[10px] text-slate-400 capitalize">({ind.periodo || 'trimestral'})</span>
                       </div>
-                      <span className={`text-lg ml-2 ${ind.progreso < 70 ? 'text-[#FF4C4C] font-black' : 'text-slate-800 font-black'}`}>
+                      <span className={`text-lg ml-2 ${ind.progreso < umbrales.umbral_desempeno_bajo ? 'text-[#FF4C4C] font-black' : 'text-slate-800 font-black'}`}>
                         {ind.progreso || 0}%
                       </span>
                     </div>

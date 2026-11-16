@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { crearClienteAdmin, usuarioDesdeRequest, errorJson } from '@/lib/servidor/supabaseAdmin'
-import { calcularAlcance } from '@/lib/alcance'
-import { estaActivo, type Area, type Empleado, type Evaluacion, type Perfil, type Plan } from '@/lib/tipos'
+import { errorJson } from '@/lib/servidor/supabaseAdmin'
+import { obtenerContextoSesion, porLotes } from '@/lib/servidor/contexto'
+import { leerConfiguracion } from '@/lib/servidor/configuracion'
+import { estaActivo, type Empleado, type Evaluacion, type Plan } from '@/lib/tipos'
 import type { EntradaDirectorio, RespuestaDatos } from '@/lib/datos'
 import { mensajeDeError } from '@/lib/errores'
 
@@ -10,38 +11,22 @@ import { mensajeDeError } from '@/lib/errores'
  * El filtrado se hace aquí, en el servidor: el navegador nunca recibe datos de desempeño fuera de su alcance.
  */
 const SELECT_FICHA = '*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)';
-const LOTE = 150; // ids por consulta (evita URLs demasiado largas)
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    const admin = crearClienteAdmin();
-    const usuario = await usuarioDesdeRequest(request, admin);
-    if (!usuario) return errorJson('Sesión no válida.', 401);
+    const ctx = await obtenerContextoSesion(request);
+    if (ctx.estado === 'sin_sesion') return errorJson('Sesión no válida.', 401);
+    if (ctx.estado !== 'ok') return NextResponse.json({ estado: ctx.estado } satisfies RespuestaDatos);
+    const { admin, perfil, empresaId, areas, todos, activos, miBase, alcance } = ctx;
+    const esEmpresa = alcance.tipo === 'empresa';
 
-    const { data: perfil } = await admin.from('perfiles').select('*').eq('id', usuario.id).maybeSingle<Perfil>();
-    if (!perfil?.empresa_id) return NextResponse.json({ estado: 'sin_perfil' } satisfies RespuestaDatos);
-    const empresaId = perfil.empresa_id;
-
-    const [{ data: areasDB }, { data: puestos }, { data: empresa }, { data: todosDB, error: errEmp }] = await Promise.all([
-      admin.from('areas').select('*').eq('empresa_id', empresaId).order('id'),
+    const [{ data: puestos }, { data: empresa }, { config }] = await Promise.all([
       admin.from('puestos').select('*').eq('empresa_id', empresaId).order('nombre', { ascending: true }),
       admin.from('empresas').select('nombre').eq('id', empresaId).maybeSingle(),
-      admin.from('empleados').select('*').eq('empresa_id', empresaId).order('id'),
+      leerConfiguracion(admin, empresaId),
     ]);
-    if (errEmp) throw errEmp;
-    const areas = (areasDB || []) as Area[];
-    const todos = (todosDB || []) as Empleado[];
-
-    // Su ficha: por cuenta vinculada o por correo (sin distinguir mayúsculas)
-    const email = (usuario.email || '').trim().toLowerCase();
-    const miBase = todos.find(e => e.user_id === usuario.id) || todos.find(e => e.email?.trim().toLowerCase() === email) || null;
-    if (miBase && !estaActivo(miBase)) return NextResponse.json({ estado: 'desvinculado' } satisfies RespuestaDatos);
-
-    const activos = todos.filter(estaActivo);
-    const alcance = calcularAlcance(perfil.rol, miBase?.id ?? null, areas, activos);
-    const esEmpresa = alcance.tipo === 'empresa';
 
     // Fichas completas: toda la empresa (Admin con desvinculados) o solo su equipo + él mismo
     let fichas: Empleado[] = [];
@@ -64,9 +49,8 @@ export async function GET(request: Request) {
     // Evaluaciones: Admin/Auditor todas las de la empresa. El resto: las que hizo y las que recibió su equipo
     // (no las que recibió él mismo de su equipo, para proteger la confidencialidad de la evaluación ascendente).
     let evaluaciones: Evaluacion[] = [];
-    const idsEmpresa = todos.map(e => e.id);
     if (esEmpresa) {
-      evaluaciones = await porLotes(idsEmpresa, async lote => {
+      evaluaciones = await porLotes(todos.map(e => e.id), async lote => {
         const { data, error } = await admin.from('evaluaciones').select('*').in('evaluado_id', lote);
         if (error) throw error;
         return (data || []) as Evaluacion[];
@@ -100,21 +84,13 @@ export async function GET(request: Request) {
     const respuesta: RespuestaDatos = {
       estado: 'ok', perfil, nombreEmpresa: empresa?.nombre || '', miEmpleado, alcance,
       areas, puestos: puestos || [], empleados: fichas, evaluaciones, directorio, monedaPreferida,
+      umbrales: { umbral_desempeno_bajo: config.umbral_desempeno_bajo, umbral_desempeno_alto: config.umbral_desempeno_alto },
     };
     return NextResponse.json(respuesta);
   } catch (error) {
     console.error('Error en /api/datos:', error);
     return errorJson(`No se pudieron cargar los datos: ${mensajeDeError(error)}`, 500);
   }
-}
-
-async function porLotes<T>(ids: number[], consulta: (lote: number[]) => Promise<T[]>): Promise<T[]> {
-  const resultado: T[] = [];
-  for (let i = 0; i < ids.length; i += LOTE) {
-    const lote = ids.slice(i, i + LOTE);
-    if (lote.length > 0) resultado.push(...(await consulta(lote)));
-  }
-  return resultado;
 }
 
 const ordenarPlanes = (emp: Empleado): Empleado => ({

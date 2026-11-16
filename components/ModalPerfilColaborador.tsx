@@ -1,8 +1,11 @@
 'use client'
 import { AreaChart, Area as RechartsArea, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import type { Empleado } from '@/lib/tipos'
+import { useUmbrales } from '@/lib/umbrales'
+import { HistorialEmpleado } from './HistorialEmpleado'
 
 export function ModalPerfilColaborador({ emp, onClose }: { emp: Empleado, onClose: () => void }) {
+  const { umbral_desempeno_alto: meta } = useUmbrales();
   const historicoOrdenado = [...(emp.historico || [])].sort(
     (a, b) => new Date(a.fecha_corte).getTime() - new Date(b.fecha_corte).getTime()
   );
@@ -42,7 +45,7 @@ export function ModalPerfilColaborador({ emp, onClose }: { emp: Empleado, onClos
             <div className="bg-[#FFF5F5] p-6 rounded-3xl border border-[#FFEAEA] flex justify-between items-center">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Cumplimiento</span>
-                <span className="text-[10px] font-bold text-slate-500 block mt-1">Potencial: {emp.potencial_score === 3 ? '⭐ Alto' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}</span>
+                <span className="text-[10px] font-bold text-slate-500 block mt-1">Potencial: {emp.potencial_score === 3 ? '⭐ Alto' : emp.potencial_score === 2 ? '🚀 Medio' : emp.potencial_score === 1 ? '🌱 Bajo' : 'Sin evaluar'}</span>
               </div>
               <div className="text-right">
                 <h3 className="text-5xl font-black text-[#FF4C4C]">{emp.cumplimiento_general}%</h3>
@@ -72,10 +75,10 @@ export function ModalPerfilColaborador({ emp, onClose }: { emp: Empleado, onClos
                     <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }} />
                     <ReferenceLine 
-                      y={85} 
+                      y={meta} 
                       stroke="#10b981" 
                       strokeDasharray="4 4" 
-                      label={{ value: 'Meta 85%', position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} 
+                      label={{ value: `Meta ${meta}%`, position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} 
                     />
                     {mediaHistorica > 0 && (
                       <ReferenceLine 
@@ -93,6 +96,8 @@ export function ModalPerfilColaborador({ emp, onClose }: { emp: Empleado, onClos
               <p className="text-xs text-slate-400 italic text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">Aún no hay cortes históricos para este colaborador.</p>
             )}
           </div>
+
+          <HistorialEmpleado empleadoId={emp.id} fechaIngreso={emp.fecha_ingreso} />
         </div>
       </div>
     </div>

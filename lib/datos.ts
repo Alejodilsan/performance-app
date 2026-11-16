@@ -1,6 +1,7 @@
 // Tipos y cliente (navegador) de /api/datos: los datos que cada usuario puede ver según su alcance.
 import { supabase } from './supabase'
 import type { Alcance } from './alcance'
+import type { UmbralesDesempeno } from './bi'
 import type { Area, Empleado, Evaluacion, Perfil, Puesto } from './tipos'
 
 /** Datos mínimos de todos los colaboradores activos, para el organigrama informativo (sin desempeño). */
@@ -19,7 +20,9 @@ export type RespuestaDatos =
       empleados: Empleado[];
       evaluaciones: Evaluacion[];
       directorio: EntradaDirectorio[];
-      monedaPreferida: string | null }
+      monedaPreferida: string | null;
+      /** Umbrales de desempeño de la empresa (configurables en el BI) */
+      umbrales: UmbralesDesempeno }
   | { estado: 'desvinculado' }
   | { estado: 'sin_perfil' };
 

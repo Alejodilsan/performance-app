@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { TarjetaEmpleado } from './TarjetaEmpleado'
+import { useUmbrales, coloresDesempeno } from '@/lib/umbrales'
 
 interface PropsTarjetaSaludArea {
   area: Area;
@@ -47,6 +48,7 @@ export function TarjetaSaludArea({
   empleadosVisibles,
   atenuada = false,
 }: PropsTarjetaSaludArea) {
+  const u = useUmbrales();
   const listaColaboradores = empleadosVisibles ?? empleadosArea;
   const filtrando = empleadosVisibles !== undefined && empleadosVisibles.length !== empleadosArea.length;
   const [editandoNombre, setEditandoNombre] = useState(false);
@@ -64,9 +66,9 @@ export function TarjetaSaludArea({
     : 0;
 
   // Métricas estratégicas de RRHH
-  const enRiesgo = empleadosArea.filter(e => e.cumplimiento_general < 60).length;
-  const estandar = empleadosArea.filter(e => e.cumplimiento_general >= 60 && e.cumplimiento_general < 85).length;
-  const topPerformers = empleadosArea.filter(e => e.cumplimiento_general >= 85).length;
+  const enRiesgo = empleadosArea.filter(e => e.cumplimiento_general < u.umbral_desempeno_bajo).length;
+  const estandar = empleadosArea.filter(e => e.cumplimiento_general >= u.umbral_desempeno_bajo && e.cumplimiento_general < u.umbral_desempeno_alto).length;
+  const topPerformers = empleadosArea.filter(e => e.cumplimiento_general >= u.umbral_desempeno_alto).length;
 
   const todosLosPlanes = empleadosArea.flatMap(e => e.planes_mejora || []);
   const planesPendientes = todosLosPlanes.filter(p => p.estado !== 'completado').length;
@@ -78,9 +80,9 @@ export function TarjetaSaludArea({
   let estadoSalud = { label: '🟢 Saludable', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   if (total === 0) {
     estadoSalud = { label: '⚪ Sin Equipo', badgeClass: 'bg-slate-100 text-slate-500 border-slate-200' };
-  } else if (promedio < 60 || planesVencidos >= 3) {
+  } else if (promedio < u.umbral_desempeno_bajo || planesVencidos >= 3) {
     estadoSalud = { label: '🔴 Riesgo Crítico', badgeClass: 'bg-red-50 text-red-700 border-red-200' };
-  } else if (promedio < 80 || planesVencidos > 0 || enRiesgo > 0) {
+  } else if (promedio < u.umbral_desempeno_alto || planesVencidos > 0 || enRiesgo > 0) {
     estadoSalud = { label: '🟡 En Observación', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' };
   }
 
@@ -159,15 +161,13 @@ export function TarjetaSaludArea({
             <div className="w-36">
               <div className="flex justify-between items-center text-[11px] font-bold mb-1">
                 <span className="text-slate-500 uppercase tracking-wider">Cumplimiento</span>
-                <span className={promedio >= 80 ? 'text-emerald-600' : promedio >= 60 ? 'text-blue-600' : 'text-[#FF4C4C]'}>
+                <span className={coloresDesempeno(promedio, u).texto}>
                   {promedio}%
                 </span>
               </div>
               <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all duration-700 ${
-                    promedio >= 80 ? 'bg-emerald-500' : promedio >= 60 ? 'bg-blue-500' : 'bg-[#FF4C4C]'
-                  }`}
+                  className={`h-full rounded-full transition-all duration-700 ${coloresDesempeno(promedio, u).barra}`}
                   style={{ width: `${promedio}%` }}
                 />
               </div>
