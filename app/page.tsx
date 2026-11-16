@@ -1,12 +1,10 @@
 'use client'
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import * as XLSX from 'xlsx'
 import {
   AreaChart, Area as RechartsArea, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import ExcelJS from 'exceljs'
 import { estaActivo, type TipoPerfil, type Puesto, type Area, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion } from '@/lib/tipos'
 import { PanelColaborador, type OpcionesGuardado } from '@/components/PanelColaborador'
 import { payloadEmpleado, parsearMonto, type DatosColaborador, type DatosCompensacion } from '@/lib/colaboradores'
@@ -26,6 +24,7 @@ import { construirArbol, NodoOrganigrama } from '@/components/Organigrama'
 import { TarjetaSaludArea } from '@/components/TarjetaSaludArea'
 import { TarjetaEmpleado } from '@/components/TarjetaEmpleado'
 import { PanelBI } from '@/components/bi/PanelBI'
+import { AsistenteImportacion } from '@/components/importacion/AsistenteImportacion'
 import { ProveedorUmbrales } from '@/lib/umbrales'
 import { CONFIG_BI_DEFECTO, type UmbralesDesempeno } from '@/lib/bi'
 import { ModalPerfilColaborador } from '@/components/ModalPerfilColaborador'
@@ -107,9 +106,8 @@ export default function DashboardPerformance() {
   const [seleccionadosSinArea, setSeleccionadosSinArea] = useState<number[]>([]);
   const [areaDestinoBloque, setAreaDestinoBloque] = useState<string>('');
   const [asignandoBloque, setAsignandoBloque] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const [subiendoExcel, setSubiendoExcel] = useState(false);
+  const [importacionAbierta, setImportacionAbierta] = useState(false);
 
   // Controla qué áreas están desplegadas en el tablero
 const [areasAbiertas, setAreasAbiertas] = useState<{ [id: number]: boolean }>({});
@@ -252,243 +250,6 @@ const toggleArea = (id: number) => {
     }
   }
 
-  const descargarPlantilla = async () => {
-    // 1. Consultar catálogos frescos desde Supabase para asegurar datos al día
-    const [{ data: puestosDB }, { data: areasDB }] = await Promise.all([
-      supabase.from('puestos').select('*').eq('empresa_id', perfil?.empresa_id).order('nombre', { ascending: true }),
-      supabase.from('areas').select('*').eq('empresa_id', perfil?.empresa_id).order('nombre', { ascending: true }),
-    ]);
-
-    const puestosLista = puestosDB || puestos;
-    const areasLista = areasDB || areas;
-
-    if (puestosLista.length === 0) {
-      alert("⚠️ No tienes Puestos de Trabajo creados.\n\nCrea al menos un puesto en el panel 'Nuevo Puesto de Trabajo' antes de descargar la plantilla para que aparezca la lista desplegable.");
-      return;
-    }
-
-    if (areasLista.length === 0) {
-      alert("⚠️ No tienes Áreas creadas.\n\nCrea al menos un área antes de descargar la plantilla.");
-      return;
-    }
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Colaboradores');
-    const catalogSheet = workbook.addWorksheet('Catalogos');
-    catalogSheet.state = 'veryHidden';
-
-    // 2. Poblar hoja oculta con los catálogos oficiales
-    puestosLista.forEach((p, idx) => { catalogSheet.getCell(`A${idx + 1}`).value = p.nombre; });
-    areasLista.forEach((a, idx) => { catalogSheet.getCell(`B${idx + 1}`).value = a.nombre; });
-    ROLES_DISPONIBLES.forEach((r, idx) => { catalogSheet.getCell(`C${idx + 1}`).value = r; });
-
-    sheet.columns = [
-      { header: 'Nombre', key: 'nombre', width: 28 },
-      { header: 'Email', key: 'email', width: 32 },
-      { header: 'Puesto', key: 'puesto', width: 26 },
-      { header: 'Area', key: 'area', width: 24 },
-      { header: 'Tipo de Perfil', key: 'tipo_perfil', width: 20 },
-    ];
-
-    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-
-    // 3. Aplicar listas desplegables reales en Puesto (C), Area (D) y Tipo de Perfil (E)
-    for (let row = 2; row <= 200; row++) {
-      sheet.getCell(`C${row}`).dataValidation = {
-        type: 'list',
-        allowBlank: false,
-        formulae: [`Catalogos!$A$1:$A$${puestosLista.length}`],
-        showErrorMessage: true,
-        errorTitle: 'Puesto inválido',
-        error: 'Selecciona un puesto disponible en la lista.'
-      };
-
-      sheet.getCell(`D${row}`).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [`Catalogos!$B$1:$B$${areasLista.length}`],
-        showErrorMessage: true,
-        errorTitle: 'Área inválida',
-        error: 'Selecciona un área previamente creada en la plataforma.'
-      };
-
-      sheet.getCell(`E${row}`).dataValidation = {
-        type: 'list',
-        allowBlank: false,
-        formulae: [`Catalogos!$C$1:$C$${ROLES_DISPONIBLES.length}`],
-        showErrorMessage: true,
-        errorTitle: 'Perfil inválido',
-        error: 'Selecciona un tipo de perfil válido.'
-      };
-    }
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Plantilla_Carga_Colaboradores.xlsx';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || subiendoExcel) return;
-
-    setSubiendoExcel(true);
-    const reader = new FileReader();
-
-    reader.onload = async (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
-
-        // Consultar correos actuales directamente desde Supabase para evitar datos desactualizados
-        const { data: existentesDB } = await supabase
-          .from('empleados')
-          .select('email')
-          .eq('empresa_id', perfil?.empresa_id);
-
-        const correosEnSistema = new Set(
-          (existentesDB || []).map(emp => emp.email.trim().toLowerCase())
-        );
-        const correosEnArchivo = new Set<string>();
-        const areasConLiderEnArchivo = new Set<number>();
-
-        interface FilaValidada {
-          nombre: string;
-          email: string;
-          puestoNombre: string;
-          puestoId: number;
-          areaId: number | null;
-          tipoPerfil: TipoPerfil;
-        }
-        const registrosValidos: FilaValidada[] = [];
-        const errores: string[] = [];
-
-        rows.forEach((row, index) => {
-          const numFila = index + 2;
-          const nombreVal = String(row['Nombre'] || '').trim();
-          const emailVal = String(row['Email'] || '').trim().toLowerCase();
-          const puestoVal = String(row['Puesto'] || '').trim();
-          const areaVal = String(row['Area'] || '').trim();
-          const perfilVal = String(row['Tipo de Perfil'] || '').trim();
-
-          // Ignorar filas completamente vacías
-          if (!nombreVal && !emailVal && !puestoVal && !areaVal && !perfilVal) return;
-
-          if (!nombreVal) errores.push(`Fila ${numFila}: Falta el 'Nombre'.`);
-
-          if (!emailVal || !emailVal.includes('@')) {
-            errores.push(`Fila ${numFila}: 'Email' inválido o vacío.`);
-          } else if (correosEnSistema.has(emailVal)) {
-            errores.push(`Fila ${numFila}: El email "${emailVal}" ya existe en la plataforma.`);
-          } else if (correosEnArchivo.has(emailVal)) {
-            errores.push(`Fila ${numFila}: El email "${emailVal}" está duplicado dentro del Excel.`);
-          } else {
-            correosEnArchivo.add(emailVal);
-          }
-
-          const puestoMatch = puestos.find(p => p.nombre.toLowerCase() === puestoVal.toLowerCase());
-          if (!puestoVal || !puestoMatch) {
-            errores.push(`Fila ${numFila}: El puesto "${puestoVal || 'Vacío'}" no existe en el catálogo.`);
-          }
-
-          let areaMatch: Area | undefined;
-          if (areaVal) {
-            areaMatch = areas.find(a => a.nombre.toLowerCase() === areaVal.toLowerCase());
-            if (!areaMatch) {
-              errores.push(`Fila ${numFila}: El área "${areaVal}" no está creada en la plataforma.`);
-            }
-          }
-
-          const rolMatch = ROLES_DISPONIBLES.find(r => r.toLowerCase() === perfilVal.toLowerCase());
-          if (!perfilVal || !rolMatch) {
-            errores.push(`Fila ${numFila}: Tipo de perfil "${perfilVal || 'Vacío'}" no válido.`);
-          }
-
-          if (rolMatch === 'Líder de Área') {
-            if (!areaMatch) {
-              errores.push(`Fila ${numFila}: El perfil 'Líder de Área' requiere especificar un Área válida.`);
-            } else if (areaMatch.lider_id !== null) {
-              errores.push(`Fila ${numFila}: El área "${areaMatch.nombre}" ya tiene un líder asignado.`);
-            } else if (areasConLiderEnArchivo.has(areaMatch.id)) {
-              errores.push(`Fila ${numFila}: Hay más de un 'Líder de Área' para "${areaMatch.nombre}" en el archivo.`);
-            } else {
-              areasConLiderEnArchivo.add(areaMatch.id);
-            }
-          }
-
-          if (puestoMatch && rolMatch) {
-            registrosValidos.push({
-              nombre: nombreVal,
-              email: emailVal,
-              puestoNombre: puestoMatch.nombre,
-              puestoId: puestoMatch.id,
-              areaId: areaMatch ? areaMatch.id : null,
-              tipoPerfil: rolMatch
-            });
-          }
-        });
-
-        if (errores.length > 0) {
-          alert(
-            `⛔ Carga rechazada. Se encontraron ${errores.length} error(es):\n\n` +
-            errores.slice(0, 12).join('\n') +
-            (errores.length > 12 ? `\n...y ${errores.length - 12} más.` : '')
-          );
-          return;
-        }
-
-        if (registrosValidos.length === 0) {
-          alert("El archivo no contiene filas válidas para importar.");
-          return;
-        }
-
-        // Inserción única en bloque
-        const payload = registrosValidos.map(reg => ({
-          nombre: reg.nombre,
-          email: reg.email,
-          puesto: reg.puestoNombre,
-          puesto_id: reg.puestoId,
-          area_id: reg.areaId,
-          tipo_perfil: reg.tipoPerfil,
-          cumplimiento_general: 0,
-          empresa_id: perfil?.empresa_id
-        }));
-
-        const { data: insertados, error: insertError } = await supabase
-          .from('empleados')
-          .insert(payload)
-          .select();
-
-        if (insertError) {
-          alert("Error al importar colaboradores: " + insertError.message);
-          return;
-        }
-
-        // Vincular líderes de área si aplica
-        if (insertados) {
-          for (const empCreado of insertados) {
-            const regOriginal = registrosValidos.find(r => r.email === empCreado.email.toLowerCase());
-            if (regOriginal?.tipoPerfil === 'Líder de Área' && regOriginal.areaId) {
-              await supabase.from('areas').update({ lider_id: empCreado.id }).eq('id', regOriginal.areaId);
-            }
-          }
-        }
-
-        alert(`✅ Carga exitosa: ${registrosValidos.length} colaborador(es) importado(s).`);
-        recargarDatos();
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        setSubiendoExcel(false);
-      }
-    };
-
-    reader.readAsBinaryString(file);
-  };
 
   async function crearArea() {
     if (!nuevaAreaNombre) return;
@@ -1169,30 +930,13 @@ const toggleArea = (id: number) => {
                   <span>🔑</span> Dar Acceso
                 </button>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={descargarPlantilla}
-                    className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200"
-                  >
-                    <span>⬇️</span> Plantilla
-                  </button>
-
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={subiendoExcel}
-                    className="text-slate-500 hover:text-slate-800 text-xs font-bold transition flex items-center gap-1 px-2 py-1 rounded bg-slate-50 border border-slate-200 disabled:opacity-50"
-                  >
-                    <span>⬆️</span> {subiendoExcel ? 'Cargando...' : 'Subir Excel'}
-                  </button>
-                </div>
+                <button
+                  onClick={() => setImportacionAbierta(true)}
+                  className="text-slate-600 hover:text-slate-900 text-xs font-bold transition flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200"
+                  title="Crear y actualizar colaboradores desde Excel"
+                >
+                  <span>📥</span> Importar
+                </button>
               </>
             )}
             
@@ -1503,15 +1247,6 @@ const toggleArea = (id: number) => {
                     onConfirm={desvincularColaborador}
                   />
                 )}
-                {/* Credenciales del colaborador recién creado con "Dar acceso ahora" */}
-                {esAdmin && accesoRecienCreado && (
-                  <ModalAccesos
-                    candidatos={[]}
-                    resultadoInicial={accesoRecienCreado}
-                    onOtorgar={otorgarAccesos}
-                    onClose={() => setAccesoRecienCreado(null)}
-                  />
-                )}
               </div>
             )}
 
@@ -1551,6 +1286,7 @@ const toggleArea = (id: number) => {
                 areas={areas}
                 etiquetaAlcance={esAdmin || esAuditor ? '🏢 Toda la organización' : `🧭 Tu equipo (${dataParaMetricas.length})`}
                 onVerFicha={(emp) => setEmpleadoViendoPerfil(emp)}
+                onAbrirImportacion={esAdmin ? () => setImportacionAbierta(true) : undefined}
                 onConfiguracionGuardada={(c) => setUmbrales({ umbral_desempeno_bajo: c.umbral_desempeno_bajo, umbral_desempeno_alto: c.umbral_desempeno_alto })}
               />
             )}
@@ -1896,6 +1632,32 @@ const toggleArea = (id: number) => {
                 onOtorgar={otorgarAccesos}
               />
             )}
+                {/* Asistente de importación masiva (crear y actualizar desde Excel) */}
+                {esAdmin && importacionAbierta && (
+                  <AsistenteImportacion
+                    activos={empleados}
+                    desvinculados={empleadosDesvinculados}
+                    areas={areas}
+                    puestos={puestos}
+                    emailImportador={perfil?.email || ''}
+                    onClose={() => setImportacionAbierta(false)}
+                    onAplicado={async (creadosIds, darAccesoNuevos) => {
+                      recargarDatos();
+                      if (!darAccesoNuevos) return;
+                      try { setAccesoRecienCreado(await otorgarAccesos(creadosIds)); }
+                      catch (e) { alert(`La importación se aplicó, pero no se pudieron generar los accesos:\n${mensajeDeError(e)}\n\nPuedes hacerlo desde "Dar Acceso".`); }
+                    }}
+                  />
+                )}
+                {/* Credenciales del colaborador recién creado con "Dar acceso ahora" */}
+                {esAdmin && accesoRecienCreado && (
+                  <ModalAccesos
+                    candidatos={[]}
+                    resultadoInicial={accesoRecienCreado}
+                    onOtorgar={otorgarAccesos}
+                    onClose={() => setAccesoRecienCreado(null)}
+                  />
+                )}
             {empleadoViendoPerfil && (
               <ModalPerfilColaborador 
                 emp={empleadoViendoPerfil} 

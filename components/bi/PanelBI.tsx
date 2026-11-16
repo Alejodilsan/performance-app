@@ -12,6 +12,7 @@ import { TalentoEnRiesgo } from './TalentoEnRiesgo'
 import { EficienciaCosto } from './EficienciaCosto'
 import { EstructuraRotacion } from './EstructuraRotacion'
 import { ModalConfiguracionBI } from './ModalConfiguracionBI'
+import { CalidadDatos } from './CalidadDatos'
 
 interface Props {
   /** Personas que este usuario puede ver (ya filtradas por su alcance, sin incluirse si no es Admin/Auditor) */
@@ -23,9 +24,11 @@ interface Props {
   etiquetaAlcance: string;
   onVerFicha: (emp: Empleado) => void;
   onConfiguracionGuardada: (c: ConfiguracionBI) => void;
+  /** Solo Admin: abre el asistente de importación para completar datos */
+  onAbrirImportacion?: () => void;
 }
 
-export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVerFicha, onConfiguracionGuardada }: Props) {
+export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVerFicha, onConfiguracionGuardada, onAbrirImportacion }: Props) {
   const [filtros, setFiltros] = useState<FiltrosBI>(FILTROS_VACIOS);
   const [bi, setBi] = useState<RespuestaBI | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -155,6 +158,8 @@ export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVer
           </div>
 
           <EstructuraRotacion empleados={filtrados} rotacion={bi.rotacion} />
+
+          <CalidadDatos empleados={filtrados} potencialEvaluado={potencialEvaluado} costos={bi.costos} onCompletar={onAbrirImportacion} />
         </>
       )}
 
