@@ -2,11 +2,22 @@
 
 export type TipoPerfil = 'Admin' | 'Manager' | 'Líder de Área' | 'Empleado' | 'Auditor';
 
+/** Cargo (en BD la tabla sigue llamándose "puestos"). Único por empresa + área + nombre normalizado. */
 export interface Puesto {
   id: number;
   nombre: string;
   empresa_id?: number;
+  /** Obligatoria para cargos nuevos; null en cargos antiguos que aún no la tienen */
+  area_id?: number | null;
+  nivel_id?: number | null;
+  descripcion?: string | null;
 }
+
+/** Nivel o banda de cargo, configurable por empresa (tabla niveles_cargo) */
+export interface NivelCargo { id: number; nombre: string; orden: number; empresa_id?: number }
+
+/** Rango salarial de un cargo (tabla rangos_salariales_cargo, solo Admin) */
+export interface RangoSalarialCargo { puesto_id: number; salario_min: number | null; salario_max: number | null; moneda: string }
 
 // --- TIPOS DE DATOS ---
 export interface Area { id: number; nombre: string; lider_id: number | null; parent_id: number | null; children?: Area[]; empleados?: Empleado[]; }

@@ -28,7 +28,7 @@ export function HistorialEmpleado({ empleadoId, fechaIngreso }: { empleadoId: nu
       <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
         <div>
           <h3 className="text-sm font-bold text-slate-800">🕓 Historial laboral</h3>
-          <p className="text-[11px] text-slate-500">Cambios de puesto, área, jefe, condiciones y salario, registrados automáticamente.</p>
+          <p className="text-[11px] text-slate-500">Cambios de cargo, área, jefe, condiciones y salario, registrados automáticamente.</p>
         </div>
         {estado.tipo === 'ok' && <ResumenTrayectoria eventos={estado.eventos} fechaIngreso={fechaIngreso} />}
       </div>
@@ -76,7 +76,7 @@ function ResumenTrayectoria({ eventos, fechaIngreso }: { eventos: EventoHistoria
   const movimientos = eventos.filter(e => ['puesto', 'area', 'jefe'].includes(e.tipo) && e.valor_anterior).length;
   const chips = [
     ingreso && `Antigüedad: ${duracion(mesesEntre(ingreso))}`,
-    s.mesesEnPuesto !== null && `En el puesto: ${duracion(s.mesesEnPuesto)}`,
+    s.mesesEnPuesto !== null && `En el cargo: ${duracion(s.mesesEnPuesto)}`,
     `${movimientos} movimiento(s)`,
   ].filter(Boolean) as string[];
   return (

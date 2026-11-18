@@ -160,13 +160,13 @@ export function senalesRetencion(emp: Pick<Empleado, 'historico' | 'planes_mejor
   const vencidos = (emp.planes_mejora || []).filter(p => p.estado !== 'completado' && new Date(p.fecha_limite).getTime() < hoy).length;
   if (vencidos > 0) senales.push({ clave: 'planes', texto: `${vencidos} compromiso(s) vencido(s)` });
   if (salariales?.bajoMedianaPct != null && salariales.bajoMedianaPct >= UMBRAL_BAJO_MEDIANA) {
-    senales.push({ clave: 'salario', texto: `${Math.round(salariales.bajoMedianaPct)}% bajo la mediana de su puesto` });
+    senales.push({ clave: 'salario', texto: `${Math.round(salariales.bajoMedianaPct)}% bajo la mediana de su cargo` });
   }
   if (salariales?.mesesSinAjuste != null && salariales.mesesSinAjuste >= MESES_SIN_AJUSTE) {
     senales.push({ clave: 'ajuste', texto: `${salariales.mesesSinAjuste} meses sin ajuste salarial` });
   }
   if (historial?.mesesEnPuesto != null && historial.mesesEnPuesto >= MESES_ESTANCAMIENTO) {
-    senales.push({ clave: 'estancamiento', texto: `${Math.floor(historial.mesesEnPuesto / 12)} años en el mismo puesto` });
+    senales.push({ clave: 'estancamiento', texto: `${Math.floor(historial.mesesEnPuesto / 12)} años en el mismo cargo` });
   }
   if (historial?.mesesDesdeCambioJefe != null && historial.mesesDesdeCambioJefe < MESES_CAMBIO_JEFE) {
     senales.push({ clave: 'jefe', texto: historial.mesesDesdeCambioJefe === 0 ? 'Cambió de jefe este mes' : `Cambió de jefe hace ${historial.mesesDesdeCambioJefe} mes(es)` });

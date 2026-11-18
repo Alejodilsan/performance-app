@@ -2,7 +2,7 @@
 import { supabase } from './supabase'
 import type { Alcance } from './alcance'
 import type { UmbralesDesempeno } from './bi'
-import type { Area, Empleado, Evaluacion, Perfil, Puesto } from './tipos'
+import type { Area, Empleado, Evaluacion, NivelCargo, Perfil, Puesto } from './tipos'
 
 /** Datos mínimos de todos los colaboradores activos, para el organigrama informativo (sin desempeño). */
 export interface EntradaDirectorio {
@@ -15,7 +15,7 @@ export interface EntradaDirectorio {
 
 export type RespuestaDatos =
   | { estado: 'ok'; perfil: Perfil; nombreEmpresa: string; miEmpleado: Empleado | null; alcance: Alcance;
-      areas: Area[]; puestos: Puesto[];
+      areas: Area[]; puestos: Puesto[]; niveles: NivelCargo[];
       /** Ficha completa (KPIs, planes, histórico) de las personas que puede ver. Admin: toda la empresa, incluidos desvinculados. */
       empleados: Empleado[];
       evaluaciones: Evaluacion[];

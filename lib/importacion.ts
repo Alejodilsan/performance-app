@@ -5,10 +5,12 @@ import {
   type Area, type Empleado, type Puesto, type TipoPerfil, type Periodicidad,
 } from './tipos'
 import {
-  datosDesdeEmpleado, datosVacios, validarColaborador, parsearMonto, hoyISO,
+  datosDesdeEmpleado, datosVacios, emailNormalizado, validarColaborador, parsearMonto, hoyISO,
   type DatosColaborador, type DatosCompensacion,
 } from './colaboradores'
 import { normalizarTexto } from './jerarquia'
+import { normalizarNombre, limpiarNombre } from './similitud'
+import { resolverCargo, etiquetaCargo } from './cargos'
 
 export const MAX_FILAS = 1000;
 const ROLES: TipoPerfil[] = ['Admin', 'Manager', 'Líder de Área', 'Empleado', 'Auditor'];
@@ -23,8 +25,8 @@ export type ClaveColumna =
   | 'sede' | 'centro_costo' | 'tipo_contrato' | 'modalidad' | 'jornada'
   | 'salario' | 'moneda' | 'periodicidad' | 'salario_desde' | 'motivo_salario' | 'potencial';
 
-export interface DefColumna {
-  clave: ClaveColumna;
+export interface DefColumna<K extends string = ClaveColumna> {
+  clave: K;
   encabezado: string;
   sinonimos: string[];
   /** 'siempre' = obligatoria en toda fila; 'crear' = obligatoria solo para colaboradores nuevos */
@@ -37,9 +39,9 @@ export interface DefColumna {
 export const COLUMNAS: DefColumna[] = [
   { clave: 'nombre', encabezado: 'Nombre', sinonimos: ['nombre completo', 'colaborador', 'empleado', 'nombres'], obligatoria: 'crear', ayuda: 'Nombre completo.', ejemplo: 'Ana María Ruiz' },
   { clave: 'email', encabezado: 'Email', sinonimos: ['correo', 'correo corporativo', 'email corporativo', 'e-mail', 'mail', 'usuario'], obligatoria: 'siempre', ayuda: 'Correo corporativo. Identifica a la persona: si ya existe se ACTUALIZA, si no se CREA.', ejemplo: 'ana.ruiz@empresa.com' },
-  { clave: 'puesto', encabezado: 'Puesto', sinonimos: ['cargo', 'puesto de trabajo', 'rol'], obligatoria: 'crear', ayuda: 'Debe existir en el catálogo de puestos (o activar "crear los que no existen").', ejemplo: 'Analista' },
+  { clave: 'puesto', encabezado: 'Cargo', sinonimos: ['puesto', 'puesto de trabajo', 'nombre del cargo', 'rol'], obligatoria: 'crear', ayuda: 'Debe existir en la hoja Cargos o en el catálogo, preferiblemente en la misma área del colaborador.', ejemplo: 'Analista' },
   { clave: 'tipo_perfil', encabezado: 'Tipo de perfil', sinonimos: ['perfil', 'tipo perfil', 'permisos', 'rol de acceso'], obligatoria: 'crear', ayuda: `Define sus permisos: ${ROLES.join(', ')}.`, ejemplo: 'Empleado' },
-  { clave: 'area', encabezado: 'Área', sinonimos: ['area', 'departamento', 'gerencia'], ayuda: 'Debe existir (o activar "crear las que no existen"). Obligatoria para Líder de Área.', ejemplo: 'Operaciones' },
+  { clave: 'area', encabezado: 'Área', sinonimos: ['area', 'departamento', 'gerencia'], ayuda: 'Debe existir en la hoja Áreas o en la plataforma. Obligatoria para Líder de Área.', ejemplo: 'Operaciones' },
   { clave: 'jefe_email', encabezado: 'Email jefe directo', sinonimos: ['jefe directo', 'jefe', 'correo jefe', 'email jefe', 'reporta a', 'lider'], ayuda: 'Correo del jefe directo (puede ser alguien del mismo archivo).', ejemplo: 'carlos.lopez@empresa.com' },
   { clave: 'fecha_ingreso', encabezado: 'Fecha de ingreso', sinonimos: ['ingreso', 'fecha ingreso', 'fecha de contratacion', 'fecha contratacion'], ayuda: 'AAAA-MM-DD o DD/MM/AAAA.', ejemplo: '2024-02-01', tipo: 'fecha' },
   { clave: 'tipo_documento', encabezado: 'Tipo de documento', sinonimos: ['tipo documento', 'tipo doc'], ayuda: TIPOS_DOCUMENTO.join(', ') + '.', ejemplo: 'Cédula de ciudadanía' },
@@ -63,8 +65,9 @@ export const COLUMNAS: DefColumna[] = [
 export const columnaPorClave = (c: ClaveColumna) => COLUMNAS.find(x => x.clave === c)!;
 
 /** Relaciona automáticamente cada encabezado del archivo con una columna conocida (o null si no la reconoce). */
-export function detectarMapeo(encabezados: string[]): (ClaveColumna | null)[] {
-  const usadas = new Set<ClaveColumna>();
+export function detectarMapeo<K extends string = ClaveColumna>(encabezados: string[], columnas: DefColumna<K>[] = COLUMNAS as unknown as DefColumna<K>[]): (K | null)[] {
+  const COLUMNAS = columnas;
+  const usadas = new Set<K>();
   return encabezados.map(h => {
     const n = normalizarTexto(h).replace(/[*:_]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!n) return null;
@@ -112,7 +115,7 @@ const SINONIMOS_CATALOGO: Record<string, string> = {
   'completa': 'completa', 'tiempo completo': 'completa', 'parcial': 'parcial', 'medio tiempo': 'parcial', 'por horas': 'por_horas',
   'mensual': 'mensual', 'anual': 'anual', 'por hora': 'por_hora', 'hora': 'por_hora',
 };
-const conSinonimos = <K extends string>(v: string, catalogo: Record<K, string>): K | null =>
+export const conSinonimos = <K extends string>(v: string, catalogo: Record<K, string>): K | null =>
   deCatalogo(v, catalogo) ?? ((SINONIMOS_CATALOGO[normalizarTexto(v)] as K) in catalogo ? SINONIMOS_CATALOGO[normalizarTexto(v)] as K : null);
 
 export function normalizarPotencial(v: string): 1 | 2 | 3 | null {
@@ -144,7 +147,14 @@ export interface ContextoImportacion {
   /** Correo del Admin que importa: no puede cambiarse su propio tipo de perfil */
   emailImportador: string;
   monedaPorDefecto: string;
+  /** Aplica las unificaciones de nombres parecidos que decidió el Admin (ver lib/estructura.ts) */
+  homologar?: (tipo: 'area' | 'cargo', nombre: string, ambitoArea?: string) => string;
+  /** Líderes que asigna la hoja Áreas: id de área → email del líder */
+  lideresAsignados?: Map<string, string>;
 }
+
+/** Cargo que se creará desde la hoja Colaboradores (opción "crear los que no existen"), dentro del área del colaborador */
+export interface CargoNuevo { nombre: string; areaNombre: string }
 
 export interface Cambio { campo: string; antes: string; despues: string }
 
@@ -173,13 +183,13 @@ export interface FilaAnalizada {
 
 export interface ResultadoAnalisis {
   filas: FilaAnalizada[];
-  puestosNuevos: string[];
+  puestosNuevos: CargoNuevo[];
   areasNuevas: string[];
   resumen: Record<AccionFila, number>;
 }
 
 const ETIQUETA: Partial<Record<keyof DatosColaborador, string>> = {
-  nombre: 'Nombre', puesto_id: 'Puesto', tipo_perfil: 'Tipo de perfil', area_id: 'Área', jefe_directo_id: 'Jefe directo',
+  nombre: 'Nombre', puesto_id: 'Cargo', tipo_perfil: 'Tipo de perfil', area_id: 'Área', jefe_directo_id: 'Jefe directo',
   fecha_ingreso: 'Fecha de ingreso', tipo_documento: 'Tipo de documento', numero_documento: 'Documento',
   fecha_nacimiento: 'Fecha de nacimiento', telefono: 'Teléfono', email_personal: 'Correo personal', sede: 'Sede',
   centro_costo: 'Centro de costo', tipo_contrato: 'Contrato', modalidad: 'Modalidad', jornada: 'Jornada',
@@ -190,20 +200,22 @@ const ETIQUETA: Partial<Record<keyof DatosColaborador, string>> = {
  * y lista exactamente qué campos cambian. Las celdas vacías NO borran datos existentes.
  */
 export function analizarImportacion(filasArchivo: FilaArchivo[], ctx: ContextoImportacion, op: OpcionesImportacion): ResultadoAnalisis {
-  const porEmail = new Map(ctx.activos.map(e => [e.email.trim().toLowerCase(), e]));
-  const desvPorEmail = new Map(ctx.desvinculados.map(e => [e.email.trim().toLowerCase(), e]));
-  const areaPorNombre = new Map(ctx.areas.map(a => [normalizarTexto(a.nombre), a]));
-  const puestoPorNombre = new Map(ctx.puestos.map(p => [normalizarTexto(p.nombre), p]));
-  const nombreArea = (id: string) => ctx.areas.find(a => String(a.id) === id)?.nombre || '';
-  const nombrePuesto = (id: string) => ctx.puestos.find(p => String(p.id) === id)?.nombre || '';
+  const porEmail = new Map(ctx.activos.filter(e => emailNormalizado(e.email)).map(e => [emailNormalizado(e.email), e]));
+  const desvPorEmail = new Map(ctx.desvinculados.filter(e => emailNormalizado(e.email)).map(e => [emailNormalizado(e.email), e]));
+  const areaPorNombre = new Map(ctx.areas.map(a => [normalizarNombre(a.nombre), a]));
+  const homologar = ctx.homologar ?? ((_t: string, n: string) => n);
+  // Copias: se les agregan los que se crean desde esta hoja, para que las filas siguientes los reconozcan
+  const areas = [...ctx.areas];
+  const puestos = [...ctx.puestos];
+  const nombreArea = (id: string) => areas.find(a => String(a.id) === id)?.nombre || '';
+  const nombrePuesto = (id: string) => { const p = puestos.find(x => String(x.id) === id); return p ? etiquetaCargo(p, areas, puestos) : ''; };
   const emailsArchivo = new Map<string, number>();
   filasArchivo.forEach(f => { const e = (f.valores.email || '').trim().toLowerCase(); if (e) emailsArchivo.set(e, (emailsArchivo.get(e) || 0) + 1); });
 
-  const puestosNuevos = new Map<string, string>();
+  const puestosNuevos = new Map<string, CargoNuevo>();
   const areasNuevas = new Map<string, string>();
   // Ids temporales (negativos) para áreas/puestos que se crearán, así la validación los trata como válidos
   let idTemporal = -1;
-  const idPuestoNuevo = new Map<string, number>();
   const idAreaNueva = new Map<string, number>();
 
   const filas: FilaAnalizada[] = filasArchivo.map(f => {
@@ -269,29 +281,50 @@ export function analizarImportacion(filasArchivo: FilaArchivo[], ctx: ContextoIm
       if (iso) d[c] = iso; else err(`"${columnaPorClave(c).encabezado}" no es una fecha válida (usa AAAA-MM-DD o DD/MM/AAAA).`);
     }
 
-    // Puesto (por nombre)
-    if (t('puesto')) {
-      const p = puestoPorNombre.get(normalizarTexto(t('puesto')));
-      if (p) { d.puesto_id = String(p.id); fila.puestoNombre = p.nombre; }
-      else if (op.crearPuestos) {
-        const k = normalizarTexto(t('puesto'));
-        if (!idPuestoNuevo.has(k)) { idPuestoNuevo.set(k, idTemporal--); puestosNuevos.set(k, t('puesto')); }
-        d.puesto_id = String(idPuestoNuevo.get(k)); fila.puestoNombre = puestosNuevos.get(k);
-        fila.advertencias.push(`Se creará el puesto "${puestosNuevos.get(k)}".`);
-      } else err(`El puesto "${t('puesto')}" no existe en el catálogo.`);
-    } else if (existente) fila.puestoNombre = nombrePuesto(d.puesto_id) || existente.puesto;
-
-    // Área (por nombre)
+    // Área (por nombre, ya unificada). Va antes que el cargo porque el cargo se busca dentro del área.
     if (t('area')) {
-      const a = areaPorNombre.get(normalizarTexto(t('area')));
+      const nombreA = limpiarNombre(homologar('area', t('area')));
+      const a = areaPorNombre.get(normalizarNombre(nombreA));
       if (a) { d.area_id = String(a.id); fila.areaNombre = a.nombre; }
       else if (op.crearAreas) {
-        const k = normalizarTexto(t('area'));
-        if (!idAreaNueva.has(k)) { idAreaNueva.set(k, idTemporal--); areasNuevas.set(k, t('area')); }
+        const k = normalizarNombre(nombreA);
+        if (!idAreaNueva.has(k)) {
+          const id = idTemporal--;
+          idAreaNueva.set(k, id); areasNuevas.set(k, nombreA);
+          const nueva: Area = { id, nombre: nombreA, lider_id: null, parent_id: null };
+          areas.push(nueva); areaPorNombre.set(k, nueva);
+        }
         d.area_id = String(idAreaNueva.get(k)); fila.areaNombre = areasNuevas.get(k);
-        fila.advertencias.push(`Se creará el área "${areasNuevas.get(k)}" (como área principal).`);
-      } else err(`El área "${t('area')}" no existe.`);
+        fila.advertencias.push(`Se creará el área "${areasNuevas.get(k)}" (como área principal; agrégala a la hoja Áreas para ubicarla).`);
+      } else err(`El área "${t('area')}" no existe: agrégala a la hoja Áreas.`);
     } else fila.areaNombre = d.area_id ? nombreArea(d.area_id) : null;
+
+    // Cargo (por nombre, dentro del área final del colaborador)
+    if (t('puesto')) {
+      const areaIdNum = d.area_id ? Number(d.area_id) : null;
+      const nombreC = limpiarNombre(homologar('cargo', t('puesto'), normalizarNombre(fila.areaNombre || '')));
+      const r = resolverCargo(nombreC, areaIdNum, puestos, areas);
+      if (r.ok) {
+        d.puesto_id = String(r.puesto.id); fila.puestoNombre = r.puesto.nombre;
+        if (r.aviso) fila.advertencias.push(r.aviso);
+      } else if (r.noExiste && op.crearPuestos) {
+        if (areaIdNum === null) err(`Para crear el cargo "${nombreC}" el colaborador debe tener área.`);
+        else {
+          const nuevo: Puesto = { id: idTemporal--, nombre: nombreC, area_id: areaIdNum };
+          puestos.push(nuevo);
+          puestosNuevos.set(`${normalizarNombre(fila.areaNombre || '')}|${normalizarNombre(nombreC)}`, { nombre: nombreC, areaNombre: fila.areaNombre || '' });
+          d.puesto_id = String(nuevo.id); fila.puestoNombre = nombreC;
+          fila.advertencias.push(`Se creará el cargo "${nombreC}" en "${fila.areaNombre}".`);
+        }
+      } else err(r.noExiste ? `El cargo "${t('puesto')}" no existe: agrégalo a la hoja Cargos con su área.` : r.error);
+    } else if (existente) {
+      fila.puestoNombre = nombrePuesto(d.puesto_id) || existente.puesto;
+      // Si cambia de área y su cargo es de otra área, se avisa
+      const p = puestos.find(x => String(x.id) === d.puesto_id);
+      if (p?.area_id != null && d.area_id && d.area_id !== base.area_id && String(p.area_id) !== d.area_id) {
+        fila.advertencias.push(`Su cargo "${p.nombre}" pertenece a "${nombreArea(String(p.area_id))}", no a su nueva área.`);
+      }
+    }
 
     // Jefe directo (por correo: alguien activo o del mismo archivo)
     if (t('jefe_email')) {
@@ -357,8 +390,8 @@ export function analizarImportacion(filasArchivo: FilaArchivo[], ctx: ContextoIm
           return;
         }
         if (antes === despues) return;
-        const legible = (x: string) => campo === 'area_id' ? (Number(x) < 0 ? fila.areaNombre || '' : nombreArea(x))
-          : campo === 'puesto_id' ? (Number(x) < 0 ? fila.puestoNombre || '' : nombrePuesto(x) || existente.puesto)
+        const legible = (x: string) => campo === 'area_id' ? nombreArea(x)
+          : campo === 'puesto_id' ? (nombrePuesto(x) || (x === base.puesto_id ? existente.puesto : fila.puestoNombre || ''))
           : campo === 'jefe_directo_id' ? nombreDe(ctx.activos, x)
           : campo === 'tipo_contrato' ? TIPOS_CONTRATO[x as keyof typeof TIPOS_CONTRATO] || x
           : campo === 'modalidad' ? MODALIDADES[x as keyof typeof MODALIDADES] || x
@@ -377,13 +410,14 @@ export function analizarImportacion(filasArchivo: FilaArchivo[], ctx: ContextoIm
 
   const resumen: Record<AccionFila, number> = { crear: 0, actualizar: 0, sin_cambios: 0, error: 0 };
   filas.forEach(f => { resumen[f.accion]++; });
-  // Solo se crean puestos/áreas que usa alguna fila válida
-  const usados = (tipo: 'puesto' | 'area') => new Set(filas.filter(f => f.accion === 'crear' || f.accion === 'actualizar')
-    .map(f => normalizarTexto((tipo === 'puesto' ? f.puestoNombre : f.areaNombre) || '')));
+  // Solo se crean cargos/áreas que usa alguna fila válida
+  const validas = filas.filter(f => f.accion === 'crear' || f.accion === 'actualizar');
+  const areasUsadas = new Set(validas.map(f => normalizarNombre(f.areaNombre || '')));
+  const cargosUsados = new Set(validas.map(f => `${normalizarNombre(f.areaNombre || '')}|${normalizarNombre(f.puestoNombre || '')}`));
   return {
     filas,
-    puestosNuevos: [...puestosNuevos.entries()].filter(([k]) => usados('puesto').has(k)).map(([, n]) => n),
-    areasNuevas: [...areasNuevas.entries()].filter(([k]) => usados('area').has(k)).map(([, n]) => n),
+    puestosNuevos: [...puestosNuevos.entries()].filter(([k]) => cargosUsados.has(k)).map(([, n]) => n),
+    areasNuevas: [...areasNuevas.entries()].filter(([k]) => areasUsadas.has(k)).map(([, n]) => n),
     resumen,
   };
 }
@@ -410,6 +444,12 @@ function validarEntreFilas(filas: FilaAnalizada[], ctx: ContextoImportacion) {
   });
   lideres.forEach((lista, areaId) => {
     if (lista.length > 1) lista.forEach(f => marcarError(f, `Hay más de un "Líder de Área" para ${f.areaNombre || 'esa área'} en el archivo.`));
+    const asignado = ctx.lideresAsignados?.get(areaId);
+    if (asignado) {
+      // La hoja Áreas manda: el líder del área es quien diga su columna "Email líder"
+      if (lista.length === 1 && lista[0].email !== asignado) marcarError(lista[0], `En la hoja Áreas el líder de "${lista[0].areaNombre}" es ${asignado}.`);
+      return;
+    }
     const area = ctx.areas.find(a => String(a.id) === areaId);
     if (area?.lider_id && lista.length === 1 && lista[0].empleadoId !== area.lider_id) {
       const actual = ctx.activos.find(e => e.id === area.lider_id);
@@ -421,9 +461,9 @@ function validarEntreFilas(filas: FilaAnalizada[], ctx: ContextoImportacion) {
   const jefeDe = new Map<string, string>(); // email → email del jefe
   ctx.activos.forEach(e => {
     const jefe = ctx.activos.find(j => j.id === e.jefe_directo_id);
-    if (jefe) jefeDe.set(e.email.toLowerCase(), jefe.email.toLowerCase());
+    if (jefe && emailNormalizado(e.email) && emailNormalizado(jefe.email)) jefeDe.set(emailNormalizado(e.email), emailNormalizado(jefe.email));
   });
-  const emailPorId = new Map(ctx.activos.map(e => [String(e.id), e.email.toLowerCase()]));
+  const emailPorId = new Map(ctx.activos.map(e => [String(e.id), emailNormalizado(e.email)]));
   filas.forEach(f => {
     if (f.accion === 'error') return;
     if (f.jefeEmail) jefeDe.set(f.email, f.jefeEmail);

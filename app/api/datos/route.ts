@@ -22,8 +22,10 @@ export async function GET(request: Request) {
     const { admin, perfil, empresaId, areas, todos, activos, miBase, alcance } = ctx;
     const esEmpresa = alcance.tipo === 'empresa';
 
-    const [{ data: puestos }, { data: empresa }, { config }] = await Promise.all([
+    const [{ data: puestos }, { data: niveles }, { data: empresa }, { config }] = await Promise.all([
       admin.from('puestos').select('*').eq('empresa_id', empresaId).order('nombre', { ascending: true }),
+      // Vacío si la migración 20261119 aún no se aplicó
+      admin.from('niveles_cargo').select('*').eq('empresa_id', empresaId).order('orden', { ascending: true }),
       admin.from('empresas').select('nombre').eq('id', empresaId).maybeSingle(),
       leerConfiguracion(admin, empresaId),
     ]);
@@ -83,7 +85,7 @@ export async function GET(request: Request) {
 
     const respuesta: RespuestaDatos = {
       estado: 'ok', perfil, nombreEmpresa: empresa?.nombre || '', miEmpleado, alcance,
-      areas, puestos: puestos || [], empleados: fichas, evaluaciones, directorio, monedaPreferida,
+      areas, puestos: puestos || [], niveles: niveles || [], empleados: fichas, evaluaciones, directorio, monedaPreferida,
       umbrales: { umbral_desempeno_bajo: config.umbral_desempeno_bajo, umbral_desempeno_alto: config.umbral_desempeno_alto },
     };
     return NextResponse.json(respuesta);

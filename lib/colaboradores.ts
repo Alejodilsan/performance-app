@@ -37,6 +37,9 @@ export interface DatosCompensacion {
   motivo: string;
 }
 
+/** Correo comparable (tolera null: hay colaboradores antiguos sin correo). */
+export const emailNormalizado = (email: string | null | undefined) => (email || '').trim().toLowerCase();
+
 export const hoyISO = () => new Date().toISOString().slice(0, 10);
 
 export function datosVacios(): DatosColaborador {
@@ -48,11 +51,12 @@ export function datosVacios(): DatosColaborador {
 }
 
 export function datosDesdeEmpleado(emp: Empleado, puestos: Puesto[]): DatosColaborador {
-  // Si el puesto guardado no está vinculado al catálogo, se intenta encontrar por nombre
-  const puestoId = emp.puesto_id ?? puestos.find(p => normalizarTexto(p.nombre) === normalizarTexto(emp.puesto))?.id;
+  // Si el cargo guardado no está vinculado al catálogo, se busca por nombre (primero en su misma área)
+  const mismoNombre = puestos.filter(p => normalizarTexto(p.nombre) === normalizarTexto(emp.puesto));
+  const puestoId = emp.puesto_id ?? (mismoNombre.find(p => p.area_id === emp.area_id) ?? mismoNombre[0])?.id;
   const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
   return {
-    nombre: emp.nombre, email: emp.email, puesto_id: s(puestoId), tipo_perfil: emp.tipo_perfil || 'Empleado',
+    nombre: emp.nombre, email: emp.email || '', puesto_id: s(puestoId), tipo_perfil: emp.tipo_perfil || 'Empleado',
     area_id: s(emp.area_id), jefe_directo_id: s(emp.jefe_directo_id), fecha_ingreso: s(emp.fecha_ingreso),
     tipo_documento: s(emp.tipo_documento), numero_documento: s(emp.numero_documento), fecha_nacimiento: s(emp.fecha_nacimiento),
     telefono: s(emp.telefono), email_personal: s(emp.email_personal),
@@ -148,7 +152,7 @@ export function validarColaborador(d: DatosColaborador, ctx: ContextoValidacion)
   if (!email) errores.email = 'El correo es obligatorio.';
   else if (!EMAIL_RE.test(email)) errores.email = 'Correo no válido.';
   else if (ctx.empleadoId === undefined) {
-    const existente = otros.find(e => e.email.trim().toLowerCase() === email);
+    const existente = otros.find(e => emailNormalizado(e.email) === email);
     if (existente) {
       errores.email = existente.estado_contratacion === 'desvinculado'
         ? `${existente.nombre} ya estuvo en la organización: reactívalo desde "Colaboradores desvinculados" para conservar su histórico.`
@@ -156,7 +160,7 @@ export function validarColaborador(d: DatosColaborador, ctx: ContextoValidacion)
     }
   }
 
-  if (!d.puesto_id) errores.puesto_id = 'Selecciona un puesto.';
+  if (!d.puesto_id) errores.puesto_id = 'Selecciona un cargo.';
   if (d.tipo_perfil === 'Líder de Área' && !d.area_id) errores.area_id = "El perfil 'Líder de Área' requiere un área.";
   if (d.jefe_directo_id && ctx.empleadoId !== undefined && parseInt(d.jefe_directo_id, 10) === ctx.empleadoId) {
     errores.jefe_directo_id = 'Una persona no puede ser su propio jefe.';

@@ -5,9 +5,12 @@ import { useRouter } from 'next/navigation'
 import {
   AreaChart, Area as RechartsArea, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import { estaActivo, type TipoPerfil, type Puesto, type Area, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion } from '@/lib/tipos'
+import { estaActivo, type TipoPerfil, type Puesto, type Area, type Evaluacion, type Empleado, type Perfil, type FuncionesTarjeta, type Compensacion, type NivelCargo, type RangoSalarialCargo } from '@/lib/tipos'
+import { CatalogoCargos, type DatosRango } from '@/components/CatalogoCargos'
+import { payloadCargo, validarCargo, traducirErrorDuplicado, type DatosCargo } from '@/lib/cargos'
+import { limpiarNombre, normalizarNombre } from '@/lib/similitud'
 import { PanelColaborador, type OpcionesGuardado } from '@/components/PanelColaborador'
-import { payloadEmpleado, parsearMonto, type DatosColaborador, type DatosCompensacion } from '@/lib/colaboradores'
+import { payloadEmpleado, parsearMonto, emailNormalizado, type DatosColaborador, type DatosCompensacion } from '@/lib/colaboradores'
 import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColaborador'
 import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
 import { ArbolAreas } from '@/components/ArbolAreas'
@@ -95,9 +98,11 @@ export default function DashboardPerformance() {
 
   const ROLES_DISPONIBLES: TipoPerfil[] = ['Admin', 'Manager', 'Líder de Área', 'Empleado', 'Auditor'];
 
-  // Catálogo de Puestos
+  // Catálogo de cargos (tabla "puestos") y niveles
   const [puestos, setPuestos] = useState<Puesto[]>([]);
-  const [nuevoPuestoNombre, setNuevoPuestoNombre] = useState('');
+  const [niveles, setNiveles] = useState<NivelCargo[]>([]);
+  const [catalogoAbierto, setCatalogoAbierto] = useState(false);
+  const [rangosCargo, setRangosCargo] = useState<Map<number, RangoSalarialCargo> | null>(null);
 
   // Modal de Creación Individual de Colaborador
   const [modalNuevoEmpAbierto, setModalNuevoEmpAbierto] = useState(false);
@@ -160,6 +165,7 @@ const toggleArea = (id: number) => {
     setNombreEmpresa(datos.nombreEmpresa)
     setAreas(datos.areas)
     setPuestos(datos.puestos)
+    setNiveles(datos.niveles || [])
     setEvaluaciones(datos.evaluaciones)
     setDirectorio(datos.directorio)
     setAlcance(datos.alcance)
@@ -252,51 +258,113 @@ const toggleArea = (id: number) => {
 
 
   async function crearArea() {
-    if (!nuevaAreaNombre) return;
-    const nombreLimpio = nuevaAreaNombre.trim();
-    const { data: areaExistente } = await supabase
-      .from('areas')
-      .select('id')
-      .ilike('nombre', nombreLimpio)
-      .eq('empresa_id', perfil?.empresa_id)
-      .single();
-    if (areaExistente) { alert(`El área "${nombreLimpio}" ya existe en tu organización.`); return; }
+    const nombreLimpio = limpiarNombre(nuevaAreaNombre);
+    if (!nombreLimpio) return;
+    // Mismo nombre sin importar mayúsculas, tildes ni espacios (igual que el índice único de la BD)
+    const existente = areas.find(a => normalizarNombre(a.nombre) === normalizarNombre(nombreLimpio));
+    if (existente) { alert(`El área "${existente.nombre}" ya existe en tu organización.`); return; }
     const { error } = await supabase.from('areas').insert([{ nombre: nombreLimpio, parent_id: nuevaAreaPadre ? parseInt(nuevaAreaPadre) : null, empresa_id: perfil?.empresa_id }]);
-    if (error) { alert("Hubo un error al crear el área. Intenta de nuevo."); console.error(error); }
+    if (error) { alert(traducirErrorDuplicado(error.message) || "Hubo un error al crear el área. Intenta de nuevo."); console.error(error); }
     else { alert(`¡Área "${nombreLimpio}" creada con éxito!`); setNuevaAreaNombre(''); recargarDatos(); }
   }
-  async function crearPuesto() {
-    const nombreLimpio = nuevoPuestoNombre.trim();
-    if (!nombreLimpio) return;
-
-    const existe = puestos.some(p => p.nombre.toLowerCase() === nombreLimpio.toLowerCase());
-    if (existe) {
-      alert(`El puesto "${nombreLimpio}" ya existe en el catálogo.`);
-      return;
-    }
-
-    const { error } = await supabase
-      .from('puestos')
-      .insert([{ nombre: nombreLimpio, empresa_id: perfil?.empresa_id }]);
-
-    if (error) {
-      alert("Error al crear puesto: " + error.message);
-    } else {
-      setNuevoPuestoNombre('');
-      recargarDatos();
-    }
-  }
-
-  // Crea un puesto desde el panel del colaborador y lo deja disponible de inmediato
-  async function crearPuestoRapido(nombrePuesto: string): Promise<Puesto | null> {
-    const nombreLimpio = nombrePuesto.trim();
-    const existente = puestos.find(p => normalizarTexto(p.nombre) === normalizarTexto(nombreLimpio));
+  // Crea un cargo desde el panel del colaborador (en el área elegida) y lo deja disponible de inmediato
+  async function crearPuestoRapido(nombrePuesto: string, areaId: number): Promise<Puesto | null> {
+    const datos: DatosCargo = { nombre: nombrePuesto, area_id: String(areaId), nivel_id: '', descripcion: '' };
+    const existente = puestos.find(p => p.area_id === areaId && normalizarNombre(p.nombre) === normalizarNombre(nombrePuesto));
     if (existente) return existente;
-    const { data, error } = await supabase.from('puestos')
-      .insert([{ nombre: nombreLimpio, empresa_id: perfil?.empresa_id }]).select().single();
-    if (error || !data) { alert('Error al crear puesto: ' + (error?.message || 'desconocido')); return null; }
+    const error = validarCargo(datos, puestos);
+    if (error) { alert(error); return null; }
+    const { data, error: e } = await supabase.from('puestos')
+      .insert([{ ...payloadCargo(datos), empresa_id: perfil?.empresa_id }]).select().single();
+    if (e || !data) { alert('Error al crear el cargo: ' + (traducirErrorDuplicado(e?.message || '') || e?.message || 'desconocido')); return null; }
     setPuestos(prev => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')));
     return data;
+  }
+
+  // ---------- Catálogo de cargos y niveles (solo Admin) ----------
+  async function abrirCatalogoCargos() {
+    setCatalogoAbierto(true);
+    setRangosCargo(null);
+    const { data } = await supabase.from('rangos_salariales_cargo').select('*').eq('empresa_id', perfil?.empresa_id);
+    setRangosCargo(new Map(((data || []) as RangoSalarialCargo[]).map(r => [r.puesto_id, r])));
+  }
+
+  async function guardarCargo(id: number | null, datos: DatosCargo, rango: DatosRango): Promise<boolean> {
+    const error = validarCargo(datos, puestos, id ?? undefined);
+    if (error) { alert(error); return false; }
+    const min = rango.min.trim() ? parsearMonto(rango.min) : null;
+    const max = rango.max.trim() ? parsearMonto(rango.max) : null;
+    if ((rango.min.trim() && (min === null || min <= 0)) || (rango.max.trim() && (max === null || max <= 0))) { alert('El rango salarial no es válido.'); return false; }
+    if (min !== null && max !== null && min > max) { alert('El salario mínimo es mayor que el máximo.'); return false; }
+
+    const payload = payloadCargo(datos);
+    const anterior = id ? puestos.find(p => p.id === id) : undefined;
+    let puestoId = id;
+    if (id) {
+      const { error: e } = await supabase.from('puestos').update(payload).eq('id', id);
+      if (e) { alert('No se pudo guardar el cargo: ' + (traducirErrorDuplicado(e.message) || e.message)); return false; }
+      // Renombrado: el nombre del cargo también vive en cada colaborador
+      if (anterior && anterior.nombre !== payload.nombre) {
+        const { error: e2 } = await supabase.from('empleados').update({ puesto: payload.nombre }).eq('puesto_id', id);
+        if (e2) alert('El cargo se renombró, pero no se pudo actualizar en los colaboradores: ' + e2.message);
+      }
+    } else {
+      const { data, error: e } = await supabase.from('puestos').insert([{ ...payload, empresa_id: perfil?.empresa_id }]).select('id').single();
+      if (e || !data) { alert('No se pudo crear el cargo: ' + (traducirErrorDuplicado(e?.message || '') || e?.message)); return false; }
+      puestoId = data.id;
+    }
+    // Rango salarial (tabla protegida: solo Admin)
+    if (puestoId) {
+      const { error: e } = min === null && max === null
+        ? await supabase.from('rangos_salariales_cargo').delete().eq('puesto_id', puestoId)
+        : await supabase.from('rangos_salariales_cargo').upsert({ puesto_id: puestoId, empresa_id: perfil?.empresa_id, salario_min: min, salario_max: max, moneda: rango.moneda, updated_at: new Date().toISOString() });
+      if (e) alert('El cargo se guardó, pero no el rango salarial: ' + e.message);
+      else setRangosCargo(prev => {
+        const m = new Map(prev || []);
+        if (min === null && max === null) m.delete(puestoId!); else m.set(puestoId!, { puesto_id: puestoId!, salario_min: min, salario_max: max, moneda: rango.moneda });
+        return m;
+      });
+    }
+    await recargarDatos();
+    return true;
+  }
+
+  async function eliminarCargo(p: Puesto): Promise<boolean> {
+    const enUso = [...empleados, ...empleadosDesvinculados].filter(e => e.puesto_id === p.id);
+    if (enUso.length > 0) { alert(`"${p.nombre}" lo tienen ${enUso.length} colaborador(es) (incluidos desvinculados). Muévelos a otro cargo antes de eliminarlo.`); return false; }
+    const { error } = await supabase.from('puestos').delete().eq('id', p.id);
+    if (error) { alert('No se pudo eliminar el cargo: ' + error.message); return false; }
+    await recargarDatos();
+    return true;
+  }
+
+  async function guardarNivel(id: number | null, nombre: string): Promise<boolean> {
+    const { error } = id
+      ? await supabase.from('niveles_cargo').update({ nombre }).eq('id', id)
+      : await supabase.from('niveles_cargo').insert([{ nombre, empresa_id: perfil?.empresa_id, orden: Math.max(0, ...niveles.map(n => n.orden)) + 1 }]);
+    if (error) {
+      alert(/niveles_cargo/.test(error.message) && !/unico/.test(error.message)
+        ? 'Falta aplicar la migración 20261119_cargos_estructura.sql en Supabase.'
+        : 'No se pudo guardar el nivel: ' + (traducirErrorDuplicado(error.message) || error.message));
+      return false;
+    }
+    await recargarDatos();
+    return true;
+  }
+
+  async function eliminarNivel(n: NivelCargo): Promise<boolean> {
+    const { error } = await supabase.from('niveles_cargo').delete().eq('id', n.id);
+    if (error) { alert('No se pudo eliminar el nivel: ' + error.message); return false; }
+    await recargarDatos();
+    return true;
+  }
+
+  async function ordenarNiveles(ordenados: NivelCargo[]) {
+    setNiveles(ordenados.map((n, i) => ({ ...n, orden: i + 1 })));
+    const resultados = await Promise.all(ordenados.map((n, i) => supabase.from('niveles_cargo').update({ orden: i + 1 }).eq('id', n.id)));
+    const fallo = resultados.find(r => r.error);
+    if (fallo?.error) alert('No se pudo guardar el orden: ' + fallo.error.message);
+    recargarDatos();
   }
 
   // Registra un salario nuevo en el historial (tabla protegida: solo Admin)
@@ -404,7 +472,7 @@ const toggleArea = (id: number) => {
 
   async function guardarEdicionColaborador(emp: Empleado, datos: DatosColaborador, comp: DatosCompensacion): Promise<boolean> {
     const cambiaTipoPerfil = (emp.tipo_perfil || 'Empleado') !== datos.tipo_perfil;
-    if (cambiaTipoPerfil && emp.email.trim().toLowerCase() === perfil?.email?.trim().toLowerCase()) {
+    if (cambiaTipoPerfil && emailNormalizado(emp.email) === emailNormalizado(perfil?.email)) {
       alert('⛔ No puedes cambiar tu propio tipo de perfil: perderías tus permisos de administración. Pídeselo a otro Admin.');
       return false;
     }
@@ -463,7 +531,7 @@ const toggleArea = (id: number) => {
   }
 
   async function desvincularColaborador(emp: Empleado, fecha: string, motivo: string): Promise<boolean> {
-    if (emp.email.trim().toLowerCase() === perfil?.email?.trim().toLowerCase()) {
+    if (emailNormalizado(emp.email) === emailNormalizado(perfil?.email)) {
       alert('⛔ No puedes desvincularte a ti mismo. Pídeselo a otro Admin.');
       return false;
     }
@@ -510,12 +578,12 @@ const toggleArea = (id: number) => {
   async function renombrarArea(aid: number, nombreNuevo: string): Promise<boolean> {
     const nombreLimpio = nombreNuevo.trim();
     if (!nombreLimpio) { alert('El nombre del área no puede estar vacío.'); return false; }
-    if (areas.some(a => a.id !== aid && a.nombre.trim().toLowerCase() === nombreLimpio.toLowerCase())) {
+    if (areas.some(a => a.id !== aid && normalizarNombre(a.nombre) === normalizarNombre(nombreLimpio))) {
       alert(`Ya existe un área llamada "${nombreLimpio}".`);
       return false;
     }
-    const { error } = await supabase.from('areas').update({ nombre: nombreLimpio }).eq('id', aid);
-    if (error) { alert('No se pudo renombrar el área: ' + error.message); return false; }
+    const { error } = await supabase.from('areas').update({ nombre: limpiarNombre(nombreLimpio) }).eq('id', aid);
+    if (error) { alert('No se pudo renombrar el área: ' + (traducirErrorDuplicado(error.message) || error.message)); return false; }
     recargarDatos();
     return true;
   }
@@ -523,11 +591,13 @@ const toggleArea = (id: number) => {
   async function eliminarArea(area: Area) {
     const activos = empleados.filter(e => e.area_id === area.id);
     const subAreas = areas.filter(a => a.parent_id === area.id);
-    if (activos.length > 0 || subAreas.length > 0) {
+    const cargosDelArea = puestos.filter(p => p.area_id === area.id);
+    if (activos.length > 0 || subAreas.length > 0 || cargosDelArea.length > 0) {
       alert(
         `⛔ No se puede eliminar "${area.nombre}" todavía:\n\n` +
         (activos.length > 0 ? `• Tiene ${activos.length} colaborador(es) activo(s). Muévelos a otra área.\n` : '') +
-        (subAreas.length > 0 ? `• Tiene sub-áreas que dependen de ella: ${subAreas.map(a => a.nombre).join(', ')}. Cámbiales el "Depende de".\n` : '')
+        (subAreas.length > 0 ? `• Tiene sub-áreas que dependen de ella: ${subAreas.map(a => a.nombre).join(', ')}. Cámbiales el "Depende de".\n` : '') +
+        (cargosDelArea.length > 0 ? `• Tiene ${cargosDelArea.length} cargo(s): ${cargosDelArea.slice(0, 5).map(p => p.nombre).join(', ')}. Muévelos a otra área o elimínalos en el catálogo de cargos.\n` : '')
       );
       return;
     }
@@ -961,7 +1031,7 @@ const toggleArea = (id: number) => {
 
                 {esAdmin && (
                   <>
-                    {/* Panel superior: Crear Área, Crear Puesto y Nuevo Colaborador */}
+                    {/* Panel superior: Crear Área, catálogo de cargos y Nuevo Colaborador */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {/* Crear Área */}
                       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-3 items-end">
@@ -994,43 +1064,23 @@ const toggleArea = (id: number) => {
                         </button>
                       </div>
 
-                      {/* Crear Puesto de Trabajo */}
+                      {/* Catálogo de cargos */}
                       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-3 items-end">
-                        <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                            Nuevo Puesto ({puestos.length})
-                          </label>
-                          <input
-                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-900 outline-none focus:border-[#FF4C4C]"
-                            placeholder="Ej: Gerente Comercial..."
-                            value={nuevoPuestoNombre}
-                            onChange={e => setNuevoPuestoNombre(e.target.value)}
-                          />
+                        <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Cargos ({puestos.length})</span>
+                          <p className="text-xs text-slate-600">
+                            {niveles.length} nivel(es) · cada cargo pertenece a un área
+                            {puestos.some(p => p.area_id == null) && (
+                              <span className="block text-[11px] font-semibold text-amber-700">◐ {puestos.filter(p => p.area_id == null).length} cargo(s) sin área por completar</span>
+                            )}
+                          </p>
                         </div>
-
-                        <div className="flex flex-col gap-1 flex-1 min-w-[150px]">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                            Puestos Disponibles
-                          </label>
-                          <select
-                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-700 outline-none"
-                            defaultValue=""
-                          >
-                            <option value="" disabled>
-                              {puestos.length > 0 ? `Ver (${puestos.length}) puestos...` : 'Sin puestos creados'}
-                            </option>
-                            {puestos.map(p => (
-                              <option key={p.id} value={p.id}>{p.nombre}</option>
-                            ))}
-                          </select>
-                        </div>
-
                         <button
                           type="button"
-                          onClick={crearPuesto}
+                          onClick={abrirCatalogoCargos}
                           className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-900 transition h-[34px]"
                         >
-                          + Puesto
+                          💼 Gestionar cargos
                         </button>
                         <button
                           type="button"
@@ -1632,6 +1682,23 @@ const toggleArea = (id: number) => {
                 onOtorgar={otorgarAccesos}
               />
             )}
+                {/* Catálogo de cargos y niveles */}
+                {esAdmin && catalogoAbierto && (
+                  <CatalogoCargos
+                    puestos={puestos}
+                    areas={areas}
+                    niveles={niveles}
+                    empleados={[...empleados, ...empleadosDesvinculados]}
+                    rangos={rangosCargo}
+                    monedaPrincipal={monedaPreferida}
+                    onGuardarCargo={guardarCargo}
+                    onEliminarCargo={eliminarCargo}
+                    onGuardarNivel={guardarNivel}
+                    onEliminarNivel={eliminarNivel}
+                    onOrdenarNiveles={ordenarNiveles}
+                    onClose={() => setCatalogoAbierto(false)}
+                  />
+                )}
                 {/* Asistente de importación masiva (crear y actualizar desde Excel) */}
                 {esAdmin && importacionAbierta && (
                   <AsistenteImportacion

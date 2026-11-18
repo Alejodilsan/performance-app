@@ -9,6 +9,8 @@ import {
   opcionesJefeDirecto, formatearMonto, parsearMonto,
   type DatosColaborador, type DatosCompensacion,
 } from '@/lib/colaboradores'
+import { agruparCargosParaArea, etiquetaCargo } from '@/lib/cargos'
+import { buscarParecidos } from '@/lib/similitud'
 
 export interface OpcionesGuardado { darAcceso: boolean }
 
@@ -23,7 +25,8 @@ interface Props {
   monedaPorDefecto: string;
   /** Historial de salarios (solo edición); null = cargando */
   compensaciones?: Compensacion[] | null;
-  onCrearPuesto: (nombre: string) => Promise<Puesto | null>;
+  /** Crea un cargo en el área indicada (el área es obligatoria para los cargos) */
+  onCrearPuesto: (nombre: string, areaId: number) => Promise<Puesto | null>;
   /** Devuelve true si se guardó. */
   onGuardar: (datos: DatosColaborador, compensacion: DatosCompensacion, opciones: OpcionesGuardado) => Promise<boolean>;
   onDesvincular?: (emp: Empleado) => void;
@@ -87,12 +90,25 @@ export function PanelColaborador({
 
   async function confirmarNuevoPuesto() {
     const nombre = (nuevoPuesto || '').trim();
-    if (!nombre) return;
+    if (!nombre || !d.area_id) return;
     setCreandoPuesto(true);
-    const creado = await onCrearPuesto(nombre);
+    const creado = await onCrearPuesto(nombre, Number(d.area_id));
     setCreandoPuesto(false);
     if (creado) { set('puesto_id', String(creado.id)); setNuevoPuesto(null); }
   }
+
+  // Cargos: primero los del área elegida
+  const areaIdNum = d.area_id ? Number(d.area_id) : null;
+  const nombreAreaSel = areas.find(a => a.id === areaIdNum)?.nombre;
+  const grupos = useMemo(() => agruparCargosParaArea(puestos, areaIdNum, areas), [puestos, areaIdNum, areas]);
+  const cargoSel = puestos.find(p => String(p.id) === d.puesto_id);
+  const avisoCargo = !cargoSel ? undefined
+    : cargoSel.area_id == null ? 'Este cargo aún no tiene área: complétala en el catálogo de cargos.'
+    : areaIdNum !== null && cargoSel.area_id !== areaIdNum ? `Este cargo pertenece a "${areas.find(a => a.id === cargoSel.area_id)?.nombre ?? 'otra área'}".`
+    : undefined;
+  const parecidosNuevo = nuevoPuesto && areaIdNum !== null
+    ? buscarParecidos(nuevoPuesto, grupos.deArea.map(p => ({ valor: p.id, nombre: p.nombre })))
+    : [];
 
   async function guardar(agregarOtro: boolean) {
     setIntentoGuardar(true);
@@ -169,43 +185,6 @@ export function PanelColaborador({
             </Campo>
 
             <div className="grid grid-cols-2 gap-3">
-              <Campo label="Puesto de trabajo *" error={err('puesto_id')}>
-                {nuevoPuesto === null ? (
-                  <select
-                    className={inputCls}
-                    value={d.puesto_id}
-                    onChange={e => (e.target.value === '__nuevo' ? setNuevoPuesto('') : set('puesto_id', e.target.value))}
-                  >
-                    <option value="">-- Seleccionar --</option>
-                    {puestos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                    <option value="__nuevo">+ Crear nuevo puesto…</option>
-                  </select>
-                ) : (
-                  <div className="flex gap-1">
-                    <input
-                      className={inputCls}
-                      placeholder="Nombre del puesto"
-                      value={nuevoPuesto}
-                      autoFocus
-                      onChange={e => setNuevoPuesto(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') { e.preventDefault(); confirmarNuevoPuesto(); }
-                        if (e.key === 'Escape') setNuevoPuesto(null);
-                      }}
-                    />
-                    <button type="button" onClick={confirmarNuevoPuesto} disabled={creandoPuesto || !nuevoPuesto.trim()} className="px-2.5 rounded-xl bg-slate-800 text-white text-xs font-bold disabled:opacity-40">✓</button>
-                    <button type="button" onClick={() => setNuevoPuesto(null)} className="px-2 rounded-xl text-slate-500 text-xs font-bold hover:bg-slate-100">✕</button>
-                  </div>
-                )}
-              </Campo>
-              <Campo label="Tipo de perfil *" ayuda="Define sus permisos en la plataforma.">
-                <select className={inputCls} value={d.tipo_perfil} onChange={e => set('tipo_perfil', e.target.value as TipoPerfil)}>
-                  {roles.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </Campo>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
               <Campo label="Área" error={err('area_id')}>
                 <select className={inputCls} value={d.area_id} onChange={e => cambiarArea(e.target.value)}>
                   <option value="">-- Sin área (pendiente) --</option>
@@ -214,6 +193,69 @@ export function PanelColaborador({
                       {a.nombre}{a.lider_id && a.lider_id === emp?.id ? ' (lidera)' : ''}
                     </option>
                   ))}
+                </select>
+              </Campo>
+              <Campo label="Cargo *" error={err('puesto_id')} ayuda={nuevoPuesto === null ? avisoCargo : undefined}>
+                {nuevoPuesto === null ? (
+                  <select
+                    className={inputCls}
+                    value={d.puesto_id}
+                    onChange={e => (e.target.value === '__nuevo' ? setNuevoPuesto('') : set('puesto_id', e.target.value))}
+                  >
+                    <option value="">-- Seleccionar --</option>
+                    {grupos.deArea.length > 0 && (
+                      <optgroup label={`De ${nombreAreaSel}`}>
+                        {grupos.deArea.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      </optgroup>
+                    )}
+                    {grupos.superiores.length > 0 && (
+                      <optgroup label="De áreas superiores">
+                        {grupos.superiores.map(p => <option key={p.id} value={p.id}>{etiquetaCargo(p, areas, puestos, true)}</option>)}
+                      </optgroup>
+                    )}
+                    {grupos.otras.length > 0 && (
+                      <optgroup label={areaIdNum !== null ? 'Otras áreas' : 'Cargos'}>
+                        {grupos.otras.map(p => <option key={p.id} value={p.id}>{etiquetaCargo(p, areas, puestos, true)}</option>)}
+                      </optgroup>
+                    )}
+                    {grupos.sinArea.length > 0 && (
+                      <optgroup label="Sin área asignada">
+                        {grupos.sinArea.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      </optgroup>
+                    )}
+                    {areaIdNum !== null
+                      ? <option value="__nuevo">+ Crear cargo en {nombreAreaSel}…</option>
+                      : <option value="" disabled>(Elige un área para crear un cargo nuevo)</option>}
+                  </select>
+                ) : (
+                  <>
+                    <div className="flex gap-1">
+                      <input
+                        className={inputCls}
+                        placeholder={`Nuevo cargo en ${nombreAreaSel}`}
+                        value={nuevoPuesto}
+                        autoFocus
+                        onChange={e => setNuevoPuesto(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); confirmarNuevoPuesto(); }
+                          if (e.key === 'Escape') setNuevoPuesto(null);
+                        }}
+                      />
+                      <button type="button" onClick={confirmarNuevoPuesto} disabled={creandoPuesto || !nuevoPuesto.trim()} className="px-2.5 rounded-xl bg-slate-800 text-white text-xs font-bold disabled:opacity-40">✓</button>
+                      <button type="button" onClick={() => setNuevoPuesto(null)} className="px-2 rounded-xl text-slate-500 text-xs font-bold hover:bg-slate-100">✕</button>
+                    </div>
+                    {parecidosNuevo.length > 0 && (
+                      <p className="text-[10px] text-amber-700 mt-1">◐ Se parece a {parecidosNuevo.map(p => `«${p.nombre}»`).join(', ')}: ¿no es el mismo?</p>
+                    )}
+                  </>
+                )}
+              </Campo>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label="Tipo de perfil *" ayuda="Define sus permisos en la plataforma.">
+                <select className={inputCls} value={d.tipo_perfil} onChange={e => set('tipo_perfil', e.target.value as TipoPerfil)}>
+                  {roles.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </Campo>
               <Campo

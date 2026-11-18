@@ -18,7 +18,7 @@ export interface EventoHistorial {
 
 export const EVENTO: Record<TipoEvento, { icono: string; titulo: string }> = {
   ingreso: { icono: '🎉', titulo: 'Ingreso a la organización' },
-  puesto: { icono: '💼', titulo: 'Cambio de puesto' },
+  puesto: { icono: '💼', titulo: 'Cambio de cargo' },
   area: { icono: '🗂️', titulo: 'Cambio de área' },
   jefe: { icono: '👤', titulo: 'Cambio de jefe directo' },
   perfil: { icono: '🔑', titulo: 'Cambio de tipo de perfil' },
@@ -51,7 +51,7 @@ export function describirEvento(ev: EventoHistorial, formatearMonto?: (v: number
   const nvo = legible(ev.tipo, ev.valor_nuevo, formatearMonto);
   switch (ev.tipo) {
     case 'ingreso': return [nvo && `Como ${nvo}`, ev.detalle && `en ${ev.detalle}`].filter(Boolean).join(' ') || 'Inicio de la relación laboral';
-    case 'desvinculacion': return [ant && `Último puesto: ${ant}`, ev.detalle && `Motivo: ${ev.detalle}`].filter(Boolean).join(' · ');
+    case 'desvinculacion': return [ant && `Último cargo: ${ant}`, ev.detalle && `Motivo: ${ev.detalle}`].filter(Boolean).join(' · ');
     case 'reactivacion': return nvo ? `Regresa como ${nvo}` : 'Vuelve a la organización';
     case 'salario': {
       const base = ant ? `${ant} → ${nvo}` : `Salario inicial: ${nvo}`;

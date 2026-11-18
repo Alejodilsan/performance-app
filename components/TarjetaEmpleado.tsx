@@ -201,7 +201,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
               <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Descripción del Cargo / Responsabilidades</label>
               <textarea
                 className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 text-slate-700 outline-none focus:border-slate-400 shadow-sm resize-none h-16"
-                placeholder="Describe las principales responsabilidades de este puesto..."
+                placeholder="Describe las principales responsabilidades de este cargo..."
                 defaultValue={emp.job_descripcion || ''}
                 onBlur={(e) => funciones.actualizarDescripcionPuesto?.(emp.id, e.target.value)}
               />
