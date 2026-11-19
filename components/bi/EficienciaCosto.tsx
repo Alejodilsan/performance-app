@@ -22,7 +22,7 @@ export function EficienciaCosto({ empleados, areas, config, costos }: Props) {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 flex flex-col">
-      <h3 className="font-bold text-slate-800">{costos ? '💰 Eficiencia del costo por área' : '📊 Desempeño por área'}</h3>
+      <h3 className="font-bold text-marca-900">{costos ? '💰 Eficiencia del costo por área' : '📊 Desempeño por área'}</h3>
       <p className="text-xs text-slate-500 mb-4">
         {costos
           ? `Costo empresa mensual (salario × ${config.factor_prestacional.toLocaleString('es-CO')}) frente al cumplimiento promedio. Las áreas con alto costo y bajo cumplimiento se marcan para revisión.`
@@ -53,7 +53,7 @@ export function EficienciaCosto({ empleados, areas, config, costos }: Props) {
                 return (
                   <tr key={String(f.areaId)}>
                     <td className="py-2 pr-2">
-                      <span className="font-bold text-slate-800">{f.nombre}</span>
+                      <span className="font-bold text-marca-900">{f.nombre}</span>
                       {revisar && <span className="ml-1.5 inline-block whitespace-nowrap text-[9px] font-bold bg-red-100 text-red-800 px-1.5 py-0.5 rounded-full align-middle">! Revisar</span>}
                     </td>
                     <td className="py-2 px-2 text-right text-slate-700">{f.headcount}</td>
@@ -65,7 +65,7 @@ export function EficienciaCosto({ empleados, areas, config, costos }: Props) {
                             <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                               <div className="h-full rounded-full bg-slate-700" style={{ width: `${(costo / maxCosto) * 100}%` }} />
                             </div>
-                            <span className="text-slate-800 font-semibold whitespace-nowrap">{formatearCompacto(costo, costos.moneda)}</span>
+                            <span className="text-marca-900 font-semibold whitespace-nowrap">{formatearCompacto(costo, costos.moneda)}</span>
                           </div>
                         ) : <span className="text-slate-400">Sin salarios</span>}
                       </td>

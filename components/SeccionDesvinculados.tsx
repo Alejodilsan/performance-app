@@ -24,7 +24,7 @@ export function SeccionDesvinculados({ desvinculados, areas, onVerHistorial, onR
         className="w-full flex items-center justify-between p-5 text-left hover:bg-slate-50/60 transition"
       >
         <div>
-          <h3 className="text-sm font-bold text-slate-800">🗄️ Colaboradores desvinculados ({desvinculados.length})</h3>
+          <h3 className="text-sm font-bold text-marca-900">🗄️ Colaboradores desvinculados ({desvinculados.length})</h3>
           <p className="text-[11px] text-slate-500">Ya no forman parte de la organización. Su histórico se conserva.</p>
         </div>
         <span className="text-[10px] text-slate-500">{abierta ? '▲' : '▼'}</span>
@@ -47,7 +47,7 @@ export function SeccionDesvinculados({ desvinculados, areas, onVerHistorial, onR
               {desvinculados.map(emp => (
                 <tr key={emp.id} className="text-slate-700">
                   <td className="px-5 py-2.5">
-                    <p className="font-bold text-slate-800">{emp.nombre}</p>
+                    <p className="font-bold text-marca-900">{emp.nombre}</p>
                     <p className="text-[10px] text-slate-500">{emp.puesto} • {emp.email}</p>
                   </td>
                   <td className="px-3 py-2.5">{areas.find(a => a.id === emp.area_id)?.nombre || '—'}</td>
@@ -56,7 +56,7 @@ export function SeccionDesvinculados({ desvinculados, areas, onVerHistorial, onR
                   <td className="px-3 py-2.5 text-right font-bold">{emp.cumplimiento_general}%</td>
                   <td className="px-5 py-2.5">
                     <div className="flex justify-end gap-1.5">
-                      <button type="button" onClick={() => onVerHistorial(emp)} className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-lg hover:bg-blue-100">
+                      <button type="button" onClick={() => onVerHistorial(emp)} className="text-[10px] font-bold text-marca-600 bg-marca-50 border border-marca-100 px-2.5 py-1 rounded-lg hover:bg-marca-100">
                         Historial
                       </button>
                       <button type="button" onClick={() => onReactivar(emp)} className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg hover:bg-emerald-100">

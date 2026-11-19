@@ -10,7 +10,8 @@ export const useUmbrales = () => useContext(UmbralesContext);
 
 /** Clases de color según el nivel de desempeño (texto y barra). */
 export function coloresDesempeno(score: number, u: UmbralesDesempeno) {
-  if (score >= u.umbral_desempeno_alto) return { texto: 'text-emerald-600', barra: 'bg-emerald-500' };
-  if (score >= u.umbral_desempeno_bajo) return { texto: 'text-blue-600', barra: 'bg-blue-500' };
-  return { texto: 'text-[#FF4C4C]', barra: 'bg-[#FF4C4C]' };
+  if (score >= u.umbral_desempeno_alto) return { texto: 'text-acento-600', barra: 'bg-acento-500' };
+  if (score >= u.umbral_desempeno_bajo) return { texto: 'text-marca-600', barra: 'bg-marca-500' };
+  // Bajo el umbral: oportunidad de mejora (ámbar), no "fracaso" (rojo)
+  return { texto: 'text-amber-600', barra: 'bg-amber-500' };
 }

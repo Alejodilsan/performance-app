@@ -40,7 +40,7 @@ const CAMPOS_SECCION: Record<Seccion, (keyof DatosColaborador)[]> = {
   compensacion: [],
 };
 
-const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] focus:bg-white transition-colors disabled:text-slate-500 disabled:cursor-not-allowed';
+const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 focus:bg-white transition-colors disabled:text-slate-500 disabled:cursor-not-allowed';
 
 export function PanelColaborador({
   modo, emp, puestos, areas, activos, desvinculados, roles, monedaPorDefecto, compensaciones,
@@ -148,7 +148,7 @@ export function PanelColaborador({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[2px] animate-in fade-in" onMouseDown={e => { if (e.target === e.currentTarget) cerrar(); }}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-marca-950/40 backdrop-blur-[2px] animate-in fade-in" onMouseDown={e => { if (e.target === e.currentTarget) cerrar(); }}>
       <form
         onSubmit={e => { e.preventDefault(); guardar(false); }}
         className="bg-white w-full max-w-xl h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"
@@ -156,7 +156,7 @@ export function PanelColaborador({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-start shrink-0">
           <div>
-            <h3 className="text-base font-bold text-slate-800">{esEdicion ? `Editar: ${emp!.nombre}` : 'Nuevo colaborador'}</h3>
+            <h3 className="text-base font-bold text-marca-900">{esEdicion ? `Editar: ${emp!.nombre}` : 'Nuevo colaborador'}</h3>
             <p className="text-[11px] text-slate-500">
               {esEdicion ? 'Actualiza la ficha del colaborador.' : 'Solo los campos con * son obligatorios; el resto puedes completarlo después.'}
               {guardadosEnSesion > 0 && <span className="ml-1 font-bold text-emerald-600">✓ {guardadosEnSesion} guardado(s)</span>}
@@ -241,7 +241,7 @@ export function PanelColaborador({
                           if (e.key === 'Escape') setNuevoPuesto(null);
                         }}
                       />
-                      <button type="button" onClick={confirmarNuevoPuesto} disabled={creandoPuesto || !nuevoPuesto.trim()} className="px-2.5 rounded-xl bg-slate-800 text-white text-xs font-bold disabled:opacity-40">✓</button>
+                      <button type="button" onClick={confirmarNuevoPuesto} disabled={creandoPuesto || !nuevoPuesto.trim()} className="px-2.5 rounded-xl bg-marca-900 text-white text-xs font-bold disabled:opacity-40">✓</button>
                       <button type="button" onClick={() => setNuevoPuesto(null)} className="px-2 rounded-xl text-slate-500 text-xs font-bold hover:bg-slate-100">✕</button>
                     </div>
                     {parecidosNuevo.length > 0 && (
@@ -359,7 +359,7 @@ export function PanelColaborador({
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {compensaciones.slice(0, 5).map((c, i) => (
-                          <tr key={c.id} className={i === 0 ? 'font-bold text-slate-800' : 'text-slate-500'}>
+                          <tr key={c.id} className={i === 0 ? 'font-bold text-marca-900' : 'text-slate-500'}>
                             <td className="px-3 py-1.5">{c.fecha_vigencia}{i === 0 && <span className="ml-1 text-[9px] text-emerald-600">vigente</span>}</td>
                             <td className="px-3 py-1.5 text-right">{formatearMonto(c.salario, c.moneda)} <span className="font-normal text-slate-400">/{PERIODICIDADES[c.periodicidad].toLowerCase()}</span></td>
                             <td className="px-3 py-1.5 truncate max-w-[140px]" title={c.motivo || ''}>{c.motivo || '—'}</td>
@@ -402,9 +402,9 @@ export function PanelColaborador({
           {/* 5. Acceso (solo al crear) */}
           {!esEdicion && (
             <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/60 cursor-pointer">
-              <input type="checkbox" checked={darAcceso} onChange={e => setDarAcceso(e.target.checked)} className="mt-0.5 w-4 h-4 accent-[#FF4C4C]" />
+              <input type="checkbox" checked={darAcceso} onChange={e => setDarAcceso(e.target.checked)} className="mt-0.5 w-4 h-4 accent-acento-600" />
               <span className="text-xs">
-                <span className="font-bold text-slate-800">🔑 Dar acceso a la plataforma ahora</span>
+                <span className="font-bold text-marca-900">🔑 Dar acceso a la plataforma ahora</span>
                 <span className="block text-[11px] text-slate-500">Se genera una clave temporal que verás al guardar. Al entrar, deberá crear su propia contraseña.</span>
               </span>
             </label>
@@ -428,7 +428,7 @@ export function PanelColaborador({
                 Guardar y agregar otro
               </button>
             )}
-            <button type="submit" disabled={guardando} className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl shadow-sm disabled:opacity-50">
+            <button type="submit" disabled={guardando} className="px-5 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl shadow-sm disabled:opacity-50">
               {guardando ? 'Guardando...' : esEdicion ? 'Guardar cambios' : 'Guardar colaborador'}
             </button>
           </div>

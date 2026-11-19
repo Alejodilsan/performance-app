@@ -25,7 +25,7 @@ export function VistaEvaluaciones360({ miDesempeno, esLider, equipo, miLider, ev
       </div>
       {esLider && equipo.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-xl font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2">Evaluación de mi Equipo (Descendente)</h3>
+          <h3 className="text-xl font-bold text-marca-900 mb-4 border-b border-slate-100 pb-2">Evaluación de mi Equipo (Descendente)</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {equipo.map((miembro) => (<FormEvaluacion key={miembro.id} evaluado={miembro} tipo="descendente" titulo={`Evaluar a ${miembro.nombre}`} descripcion={miembro.puesto} miId={miDesempeno.id} evaluaciones={evaluaciones} onSave={onSave} colorTheme="emerald" />))}
           </div>

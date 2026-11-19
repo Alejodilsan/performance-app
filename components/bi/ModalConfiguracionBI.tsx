@@ -7,7 +7,7 @@ import { mensajeDeError } from '@/lib/errores'
 
 interface Props { config: ConfiguracionBI; onClose: () => void; onGuardada: (c: ConfiguracionBI) => void }
 
-const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]';
+const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500';
 const labelCls = 'text-[10px] font-black uppercase text-slate-400 block mb-1';
 
 export function ModalConfiguracionBI({ config, onClose, onGuardada }: Props) {
@@ -26,11 +26,11 @@ export function ModalConfiguracionBI({ config, onClose, onGuardada }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-4 animate-in fade-in">
       <form onSubmit={guardar} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-100 space-y-4">
         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
           <div>
-            <h3 className="text-base font-bold text-slate-800">⚙️ Configuración del BI</h3>
+            <h3 className="text-base font-bold text-marca-900">⚙️ Configuración del BI</h3>
             <p className="text-[11px] text-slate-500">Aplica a toda la organización.</p>
           </div>
           <button type="button" onClick={onClose} className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold text-xs">✕</button>
@@ -74,7 +74,7 @@ export function ModalConfiguracionBI({ config, onClose, onGuardada }: Props) {
         {error && <p className="text-[11px] font-semibold text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
-          <button type="submit" disabled={guardando || !!error} className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl disabled:opacity-50">
+          <button type="submit" disabled={guardando || !!error} className="px-5 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl disabled:opacity-50">
             {guardando ? 'Guardando...' : 'Guardar'}
           </button>
         </div>

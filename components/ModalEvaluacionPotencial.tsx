@@ -37,7 +37,7 @@ export function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Emplea
   } else if (scoreCalculado >= 2.50) {
     nivelCalculado = 2;
     etiquetaNivel = 'Medio (50-74%)';
-    colorNivel = 'text-blue-700 bg-blue-50 border-blue-200';
+    colorNivel = 'text-marca-700 bg-marca-50 border-marca-200';
   }
 
   // Actualización con restricción estricta de 100%
@@ -90,13 +90,13 @@ export function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Emplea
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/60 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95">
         
         {/* Cabecera del Modal */}
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-slate-800">Evaluación de Potencial</h2>
+            <h2 className="text-lg font-bold text-marca-900">Evaluación de Potencial</h2>
             <p className="text-xs text-slate-500">Colaborador: <strong className="text-slate-700">{emp.nombre}</strong></p>
           </div>
           <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 font-bold hover:bg-slate-300">✕</button>
@@ -113,7 +113,7 @@ export function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Emplea
                 <button
                   type="button"
                   onClick={autoDistribuirPesos}
-                  className="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline"
+                  className="text-[10px] text-marca-600 hover:text-marca-800 font-bold underline"
                 >
                   Distribuir 100%
                 </button>
@@ -127,7 +127,7 @@ export function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Emplea
               <div key={dim.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <h4 className="font-bold text-sm text-slate-800">{dim.nombre}</h4>
+                    <h4 className="font-bold text-sm text-marca-900">{dim.nombre}</h4>
                     <p className="text-[10px] text-slate-500 leading-tight pr-4">{dim.descripcion}</p>
                   </div>
                   <div className="shrink-0 flex items-center gap-1">
@@ -176,7 +176,7 @@ export function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Emplea
                 Justificación Estratégica <span className="text-red-500">*</span>
               </label>
               <textarea 
-                className="flex-1 w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 outline-none focus:border-blue-400 shadow-sm resize-none min-h-[120px]"
+                className="flex-1 w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 outline-none focus:border-marca-400 shadow-sm resize-none min-h-[120px]"
                 placeholder="Argumenta el por qué de esta evaluación general. Explica las fortalezas demostradas y los gaps observados..."
                 value={justificacion}
                 onChange={e => setJustificacion(e.target.value)}
@@ -210,7 +210,7 @@ export function ModalEvaluacionPotencial({ emp, onClose, onSave }: { emp: Emplea
               type="button"
               onClick={handleConfirmar}
               disabled={guardando}
-              className="px-6 py-2 text-xs font-bold text-white bg-slate-800 rounded-xl shadow-sm hover:bg-slate-900 transition-all disabled:opacity-50"
+              className="px-6 py-2 text-xs font-bold text-white bg-marca-900 rounded-xl shadow-sm hover:bg-marca-800 transition-all disabled:opacity-50"
             >
               {guardando ? 'Guardando...' : 'Confirmar Potencial'}
             </button>

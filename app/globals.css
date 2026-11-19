@@ -1,11 +1,71 @@
 @import "tailwindcss";
 
+/*
+ * Identidad AlemiaHR. Cambiar la marca = cambiar estas variables.
+ *  - marca:  Azul profundo (Deep Trust Blue, Pantone 296 C) → #0F2942 = marca-900
+ *  - acento: Verde esmeralda (Emerald Growth, Pantone 7482 C) → #10B981 = acento-500
+ * Uso: estructura, títulos y menú en "marca"; acciones principales, progreso y logros en "acento".
+ * El rojo queda reservado para errores y alertas; las oportunidades de mejora usan ámbar.
+ */
+@theme {
+  --color-marca-50: #eef3f8;
+  --color-marca-100: #d9e3ee;
+  --color-marca-200: #b3c6db;
+  --color-marca-300: #8aa5c2;
+  --color-marca-400: #5e80a5;
+  --color-marca-500: #3d6189;
+  --color-marca-600: #2a4b70;
+  --color-marca-700: #1e3a5a;
+  --color-marca-800: #16304c;
+  --color-marca-900: #0f2942;
+  --color-marca-950: #091a2b;
+
+  --color-acento-50: #ecfdf5;
+  --color-acento-100: #d1fae5;
+  --color-acento-200: #a7f3d0;
+  --color-acento-300: #6ee7b7;
+  --color-acento-400: #34d399;
+  --color-acento-500: #10b981;
+  --color-acento-600: #059669;
+  --color-acento-700: #047857;
+  --color-acento-800: #065f46;
+  --color-acento-900: #064e3b;
+
+  --color-fondo: #f4f7fa;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-titulo: var(--font-montserrat), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: var(--color-fondo);
+  --foreground: var(--color-marca-900);
 }
 
 body {
-  background: white;
-  color: black;
+  background: var(--color-fondo);
+  color: var(--color-marca-900);
+  font-family: var(--font-sans);
+}
+
+/* Títulos con la tipografía del logo */
+h1, h2, h3, .font-titulo {
+  font-family: var(--font-titulo);
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: var(--color-acento-200);
+  color: var(--color-marca-900);
+}
+
+/* Barra de desplazamiento discreta */
+.custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--color-marca-100); border-radius: 9999px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--color-marca-200); }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+/* Respeta a quien prefiere menos movimiento */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

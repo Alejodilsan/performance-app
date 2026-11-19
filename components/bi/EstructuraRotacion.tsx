@@ -23,7 +23,7 @@ export function EstructuraRotacion({ empleados, rotacion }: Props) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Estructura */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 lg:col-span-2">
-        <h3 className="font-bold text-slate-800">🏗️ Estructura de la plantilla</h3>
+        <h3 className="font-bold text-marca-900">🏗️ Estructura de la plantilla</h3>
         <p className="text-xs text-slate-500 mb-4">{total} colaboradores activos con los filtros actuales.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
           {grupos.map(g => (
@@ -34,7 +34,7 @@ export function EstructuraRotacion({ empleados, rotacion }: Props) {
                   <div key={f.etiqueta} className="flex items-center gap-2 text-xs" title={`${f.cantidad} de ${total}`}>
                     <span className={`w-28 truncate ${f.etiqueta === 'Sin definir' || f.etiqueta === 'Sin fecha' ? 'text-slate-400 italic' : 'text-slate-700'}`}>{f.etiqueta}</span>
                     <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${total ? (f.cantidad / total) * 100 : 0}%` }} />
+                      <div className="h-full rounded-full bg-marca-600" style={{ width: `${total ? (f.cantidad / total) * 100 : 0}%` }} />
                     </div>
                     <span className="w-14 text-right text-slate-700 font-semibold tabular-nums">{f.cantidad} <span className="text-slate-400 font-normal">{total ? Math.round((f.cantidad / total) * 100) : 0}%</span></span>
                   </div>
@@ -47,9 +47,9 @@ export function EstructuraRotacion({ empleados, rotacion }: Props) {
 
       {/* Rotación */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-        <h3 className="font-bold text-slate-800">🔄 Rotación (12 meses)</h3>
+        <h3 className="font-bold text-marca-900">🔄 Rotación (12 meses)</h3>
         <div className="flex items-baseline gap-3 mt-1 mb-3">
-          <span className="text-3xl font-black text-slate-800">{rotacion.tasa12.toLocaleString('es-CO')}%</span>
+          <span className="text-3xl font-black text-marca-900">{rotacion.tasa12.toLocaleString('es-CO')}%</span>
           <span className="text-xs text-slate-500">{rotacion.ultimos12} salida(s)</span>
         </div>
         <div className="h-36" role="img" aria-label={`Salidas por mes: ${rotacion.porMes.map(m => `${m.etiqueta} ${m.cantidad}`).join(', ')}`}>

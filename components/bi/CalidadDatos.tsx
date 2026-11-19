@@ -30,11 +30,11 @@ export function CalidadDatos({ empleados, potencialEvaluado, costos, onCompletar
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
-          <h3 className="font-bold text-slate-800">🧩 Calidad de datos · {promedio}% completo</h3>
+          <h3 className="font-bold text-marca-900">🧩 Calidad de datos · {promedio}% completo</h3>
           <p className="text-xs text-slate-500">Los indicadores solo son confiables si estos datos están completos.</p>
         </div>
         {onCompletar && promedio < 100 && (
-          <button type="button" onClick={onCompletar} className="text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 px-3 py-1.5 rounded-lg">
+          <button type="button" onClick={onCompletar} className="text-xs font-bold text-white bg-marca-900 hover:bg-marca-800 px-3 py-1.5 rounded-lg">
             📥 Completar con importación
           </button>
         )}
@@ -46,7 +46,7 @@ export function CalidadDatos({ empleados, potencialEvaluado, costos, onCompletar
             <div key={f.dato} className="text-xs" title={`${f.n} de ${total} · se usa en: ${f.usado}`}>
               <div className="flex justify-between mb-1">
                 <span className="text-slate-700 font-semibold">{f.dato} <span className="font-normal text-slate-400">· {f.usado}</span></span>
-                <span className="text-slate-800 font-bold tabular-nums">{pct}% <span className="font-normal text-slate-400">({total - f.n} pend.)</span></span>
+                <span className="text-marca-900 font-bold tabular-nums">{pct}% <span className="font-normal text-slate-400">({total - f.n} pend.)</span></span>
               </div>
               <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${pct >= 90 ? 'bg-emerald-600' : pct >= 60 ? 'bg-amber-500' : 'bg-red-700'}`} style={{ width: `${pct}%` }} />

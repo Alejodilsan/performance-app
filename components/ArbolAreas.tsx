@@ -34,7 +34,7 @@ export function ArbolAreas({ nodos, renderArea, forzarAbiertas = false }: Props)
               type="button"
               onClick={() => togglePlegada(nodo.area.id)}
               disabled={forzarAbiertas}
-              className="flex items-center gap-2 pl-4 md:pl-6 py-2 text-[11px] font-bold text-slate-500 hover:text-slate-800 border-l-2 border-slate-200 disabled:cursor-default"
+              className="flex items-center gap-2 pl-4 md:pl-6 py-2 text-[11px] font-bold text-slate-500 hover:text-marca-900 border-l-2 border-slate-200 disabled:cursor-default"
             >
               <span className="text-[9px] w-3">{abierta ? '▼' : '▶'}</span>
               <span>

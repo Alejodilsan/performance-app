@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="f" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1E3A5A"/><stop offset="0.55" stop-color="#10B981"/><stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#FFFFFF"/>
+  <path d="M3 58 L23 7 H34 L46 38 L38 44 L28.5 19 L14.5 58 Z" fill="#0F2942"/>
+  <path d="M8 55 C 20 44, 30 42, 40 34 C 46 29, 50 23, 53 17" fill="none" stroke="url(#f)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M45 13 L61 5 L57 23 Z" fill="#10B981"/>
+  <rect x="37" y="40" width="25" height="17" rx="5" fill="#10B981"/>
+  <text x="49.5" y="52.6" text-anchor="middle" font-family="Montserrat, Arial, sans-serif" font-weight="800" font-size="11" fill="#FFFFFF">HR</text>
+</svg>

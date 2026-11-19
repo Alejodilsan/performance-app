@@ -143,7 +143,8 @@ const LISTAS: Partial<Record<ClaveColumna, () => string[]>> = {
 };
 
 const FILAS_LIBRES = 500;
-const COLOR = { obligatoria: 'FFFF4C4C', crear: 'FF334155', opcional: 'FF64748B', completar: 'FFFEF3C7' };
+// Colores AlemiaHR: obligatoria = azul profundo, solo para nuevos = azul medio, opcional = gris
+const COLOR = { obligatoria: 'FF0F2942', crear: 'FF2A4B70', opcional: 'FF64748B', completar: 'FFFEF3C7' };
 
 /** Crea una hoja con encabezados de color y notas de ayuda. */
 function hojaConColumnas<K extends string>(libro: ExcelJS.Workbook, nombre: string, columnas: DefColumna<K>[]) {
@@ -266,7 +267,7 @@ export function construirPlantilla(d: DatosPlantilla): ExcelJS.Workbook {
   // Instrucciones
   instrucciones.columns = [{ header: 'Columna', key: 'c', width: 26 }, { header: '¿Obligatoria?', key: 'o', width: 18 }, { header: 'Cómo llenarla', key: 'a', width: 95 }, { header: 'Ejemplo', key: 'e', width: 28 }];
   instrucciones.getRow(1).font = { bold: true };
-  const titulo = (t: string) => { const r = instrucciones.addRow({ c: t }); r.font = { bold: true, color: { argb: 'FFFF4C4C' } }; };
+  const titulo = (t: string) => { const r = instrucciones.addRow({ c: t }); r.font = { bold: true, color: { argb: 'FF059669' } }; };
   const nota = (t: string) => instrucciones.addRow({ a: t });
   titulo('CÓMO FUNCIONA');
   nota('Llena las hojas en orden: 1) Áreas → 2) Cargos → 3) Colaboradores. Puedes subir solo las hojas que necesites.');

@@ -1,4 +1,5 @@
 'use client'
+import { MarcoAcceso } from '@/components/marca/MarcoAcceso'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -84,14 +85,10 @@ export default function ActualizarClave() {
 
   // 3. EL ESCENARIO
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-full max-w-md animate-in fade-in zoom-in-95">
+    <MarcoAcceso>
         
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-emerald-600 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-emerald-200">
-            <span className="text-2xl text-white">🔒</span>
-          </div>
-          <h1 className="text-2xl font-black text-slate-800">{primerIngreso ? '¡Bienvenido! Crea tu contraseña' : 'Crea tu nueva clave'}</h1>
+        <div className="mb-7">
+          <h1 className="text-2xl font-extrabold text-marca-900">{primerIngreso ? '¡Bienvenido! Crea tu contraseña' : 'Crea tu nueva clave'}</h1>
           <p className="text-sm text-slate-500 mt-2">
             {primerIngreso
               ? 'Entraste con una clave temporal. Elige tu propia contraseña para activar tu cuenta.'
@@ -100,17 +97,17 @@ export default function ActualizarClave() {
         </div>
 
         {mensaje.texto && (
-          <div className={`p-4 rounded-lg mb-6 text-sm font-medium border ${mensaje.tipo === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+          <div className={`p-4 rounded-lg mb-6 text-sm font-medium border ${mensaje.tipo === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-acento-50 text-acento-800 border-acento-200'}`}>
             {mensaje.tipo === 'error' ? '⚠️ ' : '✅ '} {mensaje.texto}
           </div>
         )}
 
         <form onSubmit={handleUpdatePassword} className="space-y-5">
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nueva Contraseña</label>
+            <label className="text-xs font-bold text-marca-500 uppercase tracking-wider">Nueva Contraseña</label>
             <input 
               type="password" 
-              className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm" 
+              className="w-full mt-1 p-3 border border-marca-100 bg-marca-50/40 rounded-xl outline-none focus:border-acento-500 focus:ring-2 focus:ring-acento-100 transition-all text-sm" 
               placeholder={`Mínimo ${LARGO_MINIMO} caracteres`}
               value={password} 
               onChange={e => setPassword(e.target.value)} 
@@ -119,10 +116,10 @@ export default function ActualizarClave() {
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Confirmar Contraseña</label>
+            <label className="text-xs font-bold text-marca-500 uppercase tracking-wider">Confirmar Contraseña</label>
             <input 
               type="password" 
-              className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm" 
+              className="w-full mt-1 p-3 border border-marca-100 bg-marca-50/40 rounded-xl outline-none focus:border-acento-500 focus:ring-2 focus:ring-acento-100 transition-all text-sm" 
               placeholder="Repite tu nueva contraseña"
               value={confirmPassword} 
               onChange={e => setConfirmPassword(e.target.value)} 
@@ -133,13 +130,12 @@ export default function ActualizarClave() {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg shadow-md hover:bg-slate-900 transition-colors disabled:bg-slate-400 mt-2"
+            className="w-full bg-acento-600 text-white font-bold py-3 rounded-xl shadow-md shadow-acento-600/20 hover:bg-acento-700 transition-colors disabled:bg-slate-400 mt-2"
           >
             {loading ? 'Guardando...' : 'Guardar y entrar'}
           </button>
         </form>
 
-      </div>
-    </main>
+      </MarcoAcceso>
   )
 }

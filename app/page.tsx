@@ -22,6 +22,9 @@ import { HistorialEmpleado } from '@/components/HistorialEmpleado'
 import { otorgarAccesos, sincronizarRol, type ResultadoOtorgar, revocarAcceso, restaurarAcceso, debeCambiarClave } from '@/lib/accesos'
 import { construirJerarquia, filtrarJerarquia, idsDescendientes, coincideEmpleado, normalizarTexto } from '@/lib/jerarquia'
 import { BotonLateral } from '@/components/BotonLateral'
+import { Logo } from '@/components/marca/Logo'
+import { AnilloProgreso, BandaProgreso, Logros } from '@/components/marca/Crecimiento'
+import { etiquetaPotencial, logrosDe, mensajeProgreso } from '@/lib/motivacion'
 import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
 import { construirArbol, NodoOrganigrama } from '@/components/Organigrama'
 import { TarjetaSaludArea } from '@/components/TarjetaSaludArea'
@@ -900,26 +903,29 @@ const toggleArea = (id: number) => {
   // --- AQUI EMPIEZA EL NUEVO LAYOUT VISUAL ---
   return (
     <ProveedorUmbrales value={umbrales}>
-    <div className="flex h-screen bg-[#F8F9FA] overflow-hidden font-sans">
+    <div className="flex h-screen bg-fondo overflow-hidden font-sans">
       
       {/* ========================================== */}
       {/* 1. MENÚ LATERAL IZQUIERDO (SIDEBAR)        */}
       {/* ========================================== */}
-      <aside className="w-[260px] bg-white border-r border-slate-200 flex flex-col z-20 shadow-[2px_0_8px_-4px_rgba(0,0,0,0.1)] hidden md:flex shrink-0">
+      <aside className="w-[260px] bg-marca-900 bg-gradient-to-b from-marca-900 to-marca-950 flex flex-col z-20 hidden md:flex shrink-0">
         
-        {/* Logo de la Empresa */}
-        <div className="h-16 flex items-center px-6 border-b border-slate-100 shrink-0">
-          <h2 className="text-xl font-black text-[#FF4C4C] tracking-tighter flex items-center gap-2">
-            <span className="bg-[#FF4C4C] text-white w-6 h-6 rounded flex items-center justify-center text-xs">t</span>
-            {nombreEmpresa || "toteat HR"}
-          </h2>
+        {/* Marca AlemiaHR y empresa */}
+        <div className="h-16 flex items-center px-5 border-b border-white/10 shrink-0">
+          <Logo variante="blanco" tamano="sm" />
         </div>
+        {nombreEmpresa && (
+          <div className="px-5 pt-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-marca-300">Organización</p>
+            <p className="text-sm font-semibold text-white truncate" title={nombreEmpresa}>{nombreEmpresa}</p>
+          </div>
+        )}
 
         {/* Links de Navegación */}
         <div className="flex-1 overflow-y-auto py-5 px-4 space-y-6 custom-scrollbar">
           
           <div>
-            <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Mi Espacio</p>
+            <p className="px-3 text-[10px] font-bold uppercase text-marca-300 tracking-wider mb-2">Mi Espacio</p>
             <div className="space-y-1">
               <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={puedeVerTablero} />
               <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={true} />
@@ -928,7 +934,7 @@ const toggleArea = (id: number) => {
           </div>
 
           <div>
-            <p className="px-3 text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-2">Talento</p>
+            <p className="px-3 text-[10px] font-bold uppercase text-marca-300 tracking-wider mb-2">Talento</p>
             <div className="space-y-1">
               <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={puedeVerTablero} />
               <BotonLateral icono="⭐" texto="Evaluaciones 360" activo={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')} visible={true} />
@@ -936,6 +942,7 @@ const toggleArea = (id: number) => {
           </div>
           
         </div>
+        <p className="px-5 py-4 text-[9px] font-titulo font-semibold uppercase tracking-[0.18em] text-marca-400 border-t border-white/10">Performance Platform</p>
       </aside>
 
       {/* ========================================== */}
@@ -944,17 +951,17 @@ const toggleArea = (id: number) => {
       <div className="flex-1 flex flex-col overflow-hidden relative">
         
         {/* HEADER SUPERIOR */}
-        <header className="h-16 bg-white flex items-center justify-between px-6 border-b border-slate-200 z-10 shrink-0 shadow-sm">
-          <h1 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+        <header className="h-16 bg-white/90 backdrop-blur flex items-center justify-between px-6 border-b border-marca-100 z-10 shrink-0">
+          <h1 className="text-sm font-bold text-marca-900 flex items-center gap-2">
             <span className="text-slate-500 font-medium">Página de inicio</span>
             {vista !== 'tablero' && <span className="text-slate-300">/</span>}
-            {vista !== 'tablero' && <span className="text-[#FF4C4C] capitalize">{vista.replace('_', ' ')}</span>}
+            {vista !== 'tablero' && <span className="text-acento-700 capitalize">{vista.replace('_', ' ')}</span>}
           </h1>
           
           <div className="flex items-center gap-4">
             {/* Buscador: filtra áreas y colaboradores */}
             {puedeBuscar && (
-              <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm focus-within:border-[#FF4C4C] focus-within:bg-white transition-colors">
+              <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm focus-within:border-acento-500 focus-within:bg-white transition-colors">
                 <span className="mr-2 text-slate-400">🔍</span>
                 <input
                   type="search"
@@ -977,7 +984,7 @@ const toggleArea = (id: number) => {
             )}
 
             {tieneEquipo && (
-              <span className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full" title="Ves las áreas que lideras y sus sub-áreas; puedes editar solo a tus reportes directos">
+              <span className="text-[11px] font-bold bg-marca-50 text-marca-700 border border-marca-200 px-3 py-1 rounded-full" title="Ves las áreas que lideras y sus sub-áreas; puedes editar solo a tus reportes directos">
                 🧭 Vista de equipo ({directosIds.size} directo{directosIds.size === 1 ? '' : 's'} · {Math.max(dataParaMetricas.length - directosIds.size, 0)} en cascada)
               </span>
             )}
@@ -987,7 +994,7 @@ const toggleArea = (id: number) => {
                 <button
                   type="button"
                   onClick={() => setModalCorteAbierto(true)}
-                  className="bg-slate-800 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-slate-900 transition flex items-center gap-1.5"
+                  className="bg-marca-900 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-marca-800 transition flex items-center gap-1.5"
                   title="Generar snapshot formal de cumplimiento"
                 >
                   <span>📅</span> Cerrar Periodo
@@ -995,14 +1002,14 @@ const toggleArea = (id: number) => {
 
                 <button
                   onClick={abrirModalInvitacion}
-                  className="bg-[#FF4C4C] text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-2"
+                  className="bg-acento-600 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-acento-700 transition disabled:opacity-50 flex items-center gap-2"
                 >
                   <span>🔑</span> Dar Acceso
                 </button>
 
                 <button
                   onClick={() => setImportacionAbierta(true)}
-                  className="text-slate-600 hover:text-slate-900 text-xs font-bold transition flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200"
+                  className="text-slate-600 hover:text-marca-950 text-xs font-bold transition flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200"
                   title="Crear y actualizar colaboradores desde Excel"
                 >
                   <span>📥</span> Importar
@@ -1015,7 +1022,7 @@ const toggleArea = (id: number) => {
                 <p className="text-xs font-bold text-slate-700 leading-tight">{perfil?.nombre}</p>
                 <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="text-[10px] text-slate-400 hover:text-red-500 hover:underline leading-tight transition-colors">Cerrar Sesión</button>
               </div>
-              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold shadow-sm border border-blue-200">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-acento-400 to-acento-600 text-white flex items-center justify-center text-sm font-titulo font-bold shadow-sm ring-2 ring-acento-100">
                 {perfil?.nombre?.charAt(0).toUpperCase() || 'U'}
               </div>
             </div>
@@ -1038,7 +1045,7 @@ const toggleArea = (id: number) => {
                         <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Nueva Área</label>
                           <input
-                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-900 outline-none focus:border-[#FF4C4C]"
+                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-marca-950 outline-none focus:border-acento-500"
                             placeholder="Ej: Ventas..."
                             value={nuevaAreaNombre}
                             onChange={e => setNuevaAreaNombre(e.target.value)}
@@ -1047,7 +1054,7 @@ const toggleArea = (id: number) => {
                         <div className="flex flex-col gap-1 flex-1 min-w-[140px]">
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Reporta a</label>
                           <select
-                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-700 outline-none focus:border-[#FF4C4C]"
+                            className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-xs text-slate-700 outline-none focus:border-acento-500"
                             value={nuevaAreaPadre}
                             onChange={e => setNuevaAreaPadre(e.target.value)}
                           >
@@ -1058,7 +1065,7 @@ const toggleArea = (id: number) => {
                         <button
                           type="button"
                           onClick={crearArea}
-                          className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-900 transition h-[34px]"
+                          className="bg-marca-900 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-marca-800 transition h-[34px]"
                         >
                           + Área
                         </button>
@@ -1078,14 +1085,14 @@ const toggleArea = (id: number) => {
                         <button
                           type="button"
                           onClick={abrirCatalogoCargos}
-                          className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-900 transition h-[34px]"
+                          className="bg-marca-900 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-marca-800 transition h-[34px]"
                         >
                           💼 Gestionar cargos
                         </button>
                         <button
                           type="button"
                           onClick={() => setModalNuevoEmpAbierto(true)}
-                          className="bg-[#FF4C4C] text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-600 transition h-[34px] shadow-sm"
+                          className="bg-acento-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-acento-700 transition h-[34px] shadow-sm"
                         >
                           + Nuevo Colaborador
                         </button>
@@ -1104,7 +1111,7 @@ const toggleArea = (id: number) => {
                             <div className="flex items-center gap-2">
                               <span className="text-lg">⚠️</span>
                               <div>
-                                <h3 className="text-sm font-bold text-slate-800">Pendientes de Estructura Organizacional</h3>
+                                <h3 className="text-sm font-bold text-marca-900">Pendientes de Estructura Organizacional</h3>
                                 <p className="text-[11px] text-slate-500">
                                   {sinArea.length} colaborador(es) sin área • {areasSinLider.length} área(s) sin líder asignado
                                 </p>
@@ -1132,7 +1139,7 @@ const toggleArea = (id: number) => {
                                     onChange={() => setSeleccionadosSinArea(
                                       seleccionadosSinArea.length === sinArea.length ? [] : sinArea.map(e => e.id)
                                     )}
-                                    className="accent-[#FF4C4C] rounded"
+                                    className="accent-acento-600 rounded"
                                   />
                                   Seleccionar todos ({sinArea.length})
                                 </label>
@@ -1141,7 +1148,7 @@ const toggleArea = (id: number) => {
                                   <select
                                     value={areaDestinoBloque}
                                     onChange={(e) => setAreaDestinoBloque(e.target.value)}
-                                    className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 outline-none focus:border-[#FF4C4C]"
+                                    className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 outline-none focus:border-acento-500"
                                   >
                                     <option value="">-- Elegir Área destino --</option>
                                     {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
@@ -1150,7 +1157,7 @@ const toggleArea = (id: number) => {
                                     type="button"
                                     onClick={asignarAreaEnBloque}
                                     disabled={asignandoBloque || seleccionadosSinArea.length === 0 || !areaDestinoBloque}
-                                    className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-900 transition disabled:opacity-40"
+                                    className="bg-marca-900 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-marca-800 transition disabled:opacity-40"
                                   >
                                     {asignandoBloque ? 'Asignando...' : `Asignar (${seleccionadosSinArea.length})`}
                                   </button>
@@ -1164,7 +1171,7 @@ const toggleArea = (id: number) => {
                                     <label
                                       key={emp.id}
                                       className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
-                                        marcado ? 'bg-red-50/60 border-[#FF4C4C]/40' : 'bg-slate-50/60 border-slate-200/70 hover:bg-slate-50'
+                                        marcado ? 'bg-acento-50/60 border-acento-400/60' : 'bg-slate-50/60 border-slate-200/70 hover:bg-slate-50'
                                       }`}
                                     >
                                       <input
@@ -1173,10 +1180,10 @@ const toggleArea = (id: number) => {
                                         onChange={() => setSeleccionadosSinArea(prev =>
                                           prev.includes(emp.id) ? prev.filter(id => id !== emp.id) : [...prev, emp.id]
                                         )}
-                                        className="accent-[#FF4C4C]"
+                                        className="accent-acento-600"
                                       />
                                       <div className="min-w-0 flex-1">
-                                        <p className="font-bold text-slate-800 truncate">{emp.nombre}</p>
+                                        <p className="font-bold text-marca-900 truncate">{emp.nombre}</p>
                                         <p className="text-[10px] text-slate-500 truncate">
                                           {emp.puesto} • <span className="font-semibold text-slate-700">{emp.tipo_perfil || 'Empleado'}</span>
                                         </p>
@@ -1197,10 +1204,10 @@ const toggleArea = (id: number) => {
                 {resultadoBusqueda && (
                   <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl px-5 py-3 text-xs">
                     <span className="text-slate-600">
-                      🔍 <strong className="text-slate-800">&quot;{busqueda.trim()}&quot;</strong>:{' '}
+                      🔍 <strong className="text-marca-900">&quot;{busqueda.trim()}&quot;</strong>:{' '}
                       {resultadoBusqueda.totalAreas} área(s) y {resultadoBusqueda.totalEmpleados} colaborador(es) encontrados
                     </span>
-                    <button type="button" onClick={() => setBusqueda('')} className="font-bold text-[#FF4C4C] hover:underline">
+                    <button type="button" onClick={() => setBusqueda('')} className="font-bold text-acento-700 hover:underline">
                       Limpiar búsqueda
                     </button>
                   </div>
@@ -1248,7 +1255,7 @@ const toggleArea = (id: number) => {
                 {/* Personas de su equipo que le reportan desde áreas que no lidera (jefe directo) */}
                 {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).length > 0 && (
                   <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 md:p-6">
-                    <h3 className="text-sm font-bold text-slate-800 mb-1">👤 Reportes de otras áreas</h3>
+                    <h3 className="text-sm font-bold text-marca-900 mb-1">👤 Reportes de otras áreas</h3>
                     <p className="text-[11px] text-slate-500 mb-4">Te tienen como jefe directo aunque pertenecen a un área que no lideras.</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                       {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).map(emp => (
@@ -1356,49 +1363,46 @@ const toggleArea = (id: number) => {
                 <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in zoom-in-95 mt-2">
                   
                   {/* 1. Cabecera del Colaborador y Score */}
-                  <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-[#FF4C4C] bg-red-50 px-3 py-1 rounded-full border border-red-100">
-                        Perfil & Performance
+                  {/* 0. Mensaje de progreso */}
+                  <BandaProgreso mensaje={mensajeProgreso(miDesempeno, umbrales, variacion)} />
+
+                  <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-marca-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-acento-700 bg-acento-50 px-3 py-1 rounded-full border border-acento-100">
+                        Mi desarrollo
                       </span>
-                      <h2 className="text-2xl md:text-3xl font-black text-slate-800 mt-2">{miDesempeno.nombre}</h2>
-                      <p className="text-slate-500 font-medium text-xs md:text-sm">{miDesempeno.puesto}</p>
+                      <h2 className="text-2xl md:text-3xl font-extrabold text-marca-900 mt-2">{miDesempeno.nombre}</h2>
+                      <p className="text-marca-500 font-medium text-xs md:text-sm">{miDesempeno.puesto}</p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <span className="text-[11px] font-semibold text-marca-700 bg-marca-50 border border-marca-100 px-3 py-1 rounded-full">
+                          Potencial: {etiquetaPotencial(miDesempeno.potencial_score)}
+                        </span>
+                        {variacion !== null && (
+                          <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${
+                            variacion >= 0 ? 'bg-acento-50 border-acento-200 text-acento-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+                          }`}>
+                            {variacion >= 0 ? `▲ +${variacion} pts vs. período anterior` : `Oportunidad: ${variacion} pts vs. período anterior`}
+                          </span>
+                        )}
+                      </div>
                       {miDesempeno.job_descripcion && (
-                        <p className="text-xs text-slate-400 mt-2 max-w-xl italic bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <p className="text-xs text-marca-500 mt-3 max-w-xl bg-marca-50/60 p-3 rounded-xl border border-marca-100">
                           {miDesempeno.job_descripcion}
                         </p>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-4 shrink-0">
-                      {variacion !== null && (
-                        <div className={`px-3.5 py-2 rounded-2xl border text-center ${
-                          variacion >= 0 
-                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
-                            : 'bg-red-50 border-red-200 text-red-700'
-                        }`}>
-                          <span className="text-[9px] font-black uppercase block">Tendencia</span>
-                          <span className="text-sm font-black">
-                            {variacion >= 0 ? `▲ +${variacion}%` : `▼ ${variacion}%`}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="bg-[#FFF5F5] p-5 rounded-2xl border border-[#FFEAEA] text-right min-w-[155px]">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Cumplimiento Actual</span>
-                        <h3 className="text-5xl font-black text-[#FF4C4C]">{miDesempeno.cumplimiento_general}%</h3>
-                        <span className="text-[10px] font-bold text-slate-500 mt-1 block">
-                          Potencial: {miDesempeno.potencial_score === 3 ? '⭐ Alto' : miDesempeno.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
-                        </span>
-                      </div>
-                    </div>
+                    <AnilloProgreso valor={miDesempeno.cumplimiento_general} etiqueta="Cumplimiento" />
                   </div>
+
+                  {/* 1b. Logros */}
+                  <Logros logros={logrosDe(miDesempeno)} />
 
                   {/* 2. Gráfica de Curva de Cumplimiento a través del tiempo */}
                   <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
                       <div>
-                        <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <h3 className="text-base font-bold text-marca-900 flex items-center gap-2">
                           📈 Curva de Cumplimiento a través del Tiempo
                         </h3>
                         <p className="text-xs text-slate-400">
@@ -1408,7 +1412,7 @@ const toggleArea = (id: number) => {
 
                       <div className="flex items-center gap-2 text-xs">
                         <span className="px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 font-semibold">
-                          Meta Esperada: <strong>85%</strong>
+                          Nivel alto desde: <strong>{umbrales.umbral_desempeno_alto}%</strong>
                         </span>
                       </div>
                     </div>
@@ -1422,8 +1426,8 @@ const toggleArea = (id: number) => {
                           >
                             <defs>
                               <linearGradient id="curvaCumplimiento" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#FF4C4C" stopOpacity={0.35}/>
-                                <stop offset="95%" stopColor="#FF4C4C" stopOpacity={0.0}/>
+                                <stop offset="5%" stopColor="#10B981" stopOpacity={0.35}/>
+                                <stop offset="95%" stopColor="#10B981" stopOpacity={0.0}/>
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -1450,19 +1454,19 @@ const toggleArea = (id: number) => {
                               }}
                             />
                             <ReferenceLine 
-                              y={85} 
+                              y={umbrales.umbral_desempeno_alto} 
                               stroke="#10b981" 
                               strokeDasharray="4 4" 
-                              label={{ value: 'Meta 85%', position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} 
+                              label={{ value: `Nivel alto ${umbrales.umbral_desempeno_alto}%`, position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontWeight: 'bold' }} 
                             />
                             <RechartsArea 
                               type="monotone" 
                               dataKey="cumplimiento" 
-                              stroke="#FF4C4C" 
+                              stroke="#10B981" 
                               strokeWidth={3} 
                               fillOpacity={1} 
                               fill="url(#curvaCumplimiento)" 
-                              dot={{ fill: '#FF4C4C', stroke: '#fff', strokeWidth: 2, r: 5 }}
+                              dot={{ fill: '#0F2942', stroke: '#fff', strokeWidth: 2, r: 5 }}
                               activeDot={{ r: 7 }}
                             />
                           </AreaChart>
@@ -1479,19 +1483,19 @@ const toggleArea = (id: number) => {
 
                   {/* 3. Indicadores Activos del Colaborador */}
                   <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100">
-                    <h3 className="text-base font-bold text-slate-800 mb-4">🎯 Mis Indicadores (KPIs)</h3>
+                    <h3 className="text-base font-bold text-marca-900 mb-4">🎯 Mis Indicadores (KPIs)</h3>
                     <div className="space-y-4">
                       {miDesempeno.indicadores && miDesempeno.indicadores.length > 0 ? (
                         miDesempeno.indicadores.map(ind => (
                           <div key={ind.id} className="bg-slate-50/70 p-4 rounded-xl border border-slate-100">
                             <div className="flex justify-between items-center text-sm mb-1">
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-800">{ind.titulo}</span>
+                                <span className="font-bold text-marca-900">{ind.titulo}</span>
                                 <span className="text-[10px] bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full uppercase font-bold">
                                   {ind.periodo || 'trimestral'}
                                 </span>
                               </div>
-                              <span className="font-black text-slate-800">{ind.progreso}%</span>
+                              <span className="font-black text-marca-900">{ind.progreso}%</span>
                             </div>
                             {ind.descripcion && (
                               <p className="text-[11px] text-slate-400 mb-2">{ind.descripcion}</p>
@@ -1502,13 +1506,13 @@ const toggleArea = (id: number) => {
                             </div>
                             <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
                               <div 
-                                className="h-full bg-gradient-to-r from-[#FF4C4C] to-red-600 rounded-full transition-all duration-500" 
+                                className="h-full bg-gradient-to-r from-acento-400 to-acento-600 rounded-full transition-all duration-500" 
                                 style={{ width: `${ind.progreso}%` }}
                               />
                             </div>
                             {ind.feedback_lider && (
                               <div className="mt-3 text-[11px] text-slate-600 bg-white p-3 rounded-lg border border-slate-200/70">
-                                <strong className="text-slate-800 font-semibold block mb-0.5">Feedback del líder:</strong>
+                                <strong className="text-marca-900 font-semibold block mb-0.5">Feedback del líder:</strong>
                                 <p className="italic">{ind.feedback_lider}</p>
                               </div>
                             )}
@@ -1535,12 +1539,12 @@ const toggleArea = (id: number) => {
               );
 
               return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                   <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 border border-slate-100 animate-in zoom-in-95 duration-200">
                     <div className="flex justify-between items-center mb-3">
                       <div className="flex items-center gap-2">
-                        <span className="p-2 bg-red-50 text-[#FF4C4C] rounded-xl text-base">🔒</span>
-                        <h3 className="text-base font-bold text-slate-800">Bloquear Periodo Oficial</h3>
+                        <span className="p-2 bg-marca-50 text-marca-700 rounded-xl text-base">🔒</span>
+                        <h3 className="text-base font-bold text-marca-900">Bloquear Periodo Oficial</h3>
                       </div>
                       <button
                         type="button"
@@ -1563,7 +1567,7 @@ const toggleArea = (id: number) => {
                         <select
                           value={mesCorte}
                           onChange={(e) => setMesCorte(e.target.value)}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] font-semibold text-slate-800 cursor-pointer"
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 font-semibold text-marca-900 cursor-pointer"
                         >
                           {MESES_ANIO.map((mes) => {
                             const bloqueado = periodosBloqueados.some(
@@ -1592,7 +1596,7 @@ const toggleArea = (id: number) => {
                             );
                             if (primerDisponible) setMesCorte(primerDisponible);
                           }}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] font-semibold text-slate-800 cursor-pointer"
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 font-semibold text-marca-900 cursor-pointer"
                         >
                           {ANIOS_DISPONIBLES.map((anio) => (
                             <option key={anio} value={anio}>
@@ -1610,7 +1614,7 @@ const toggleArea = (id: number) => {
                           type="date"
                           value={fechaCortePeriodo}
                           onChange={(e) => setFechaCortePeriodo(e.target.value)}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C] font-semibold text-slate-800 cursor-pointer"
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 font-semibold text-marca-900 cursor-pointer"
                         />
                       </div>
                     </div>
@@ -1634,7 +1638,7 @@ const toggleArea = (id: number) => {
                               className="flex items-center justify-between bg-slate-50 border border-slate-200/80 px-3 py-2 rounded-xl text-xs"
                             >
                               <div>
-                                <span className="font-bold text-slate-800 block">{p.periodo}</span>
+                                <span className="font-bold text-marca-900 block">{p.periodo}</span>
                                 <span className="text-[10px] text-slate-400">
                                   {new Date(p.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} • {p.total} colab.
                                 </span>
@@ -1664,7 +1668,7 @@ const toggleArea = (id: number) => {
                         type="button"
                         onClick={ejecutarCorteOficial}
                         disabled={ejecutandoCorte || seleccionYaBloqueada}
-                        className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-5 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {ejecutandoCorte ? 'Bloqueando...' : `🔒 Bloquear ${etiquetaSeleccionada}`}
                       </button>

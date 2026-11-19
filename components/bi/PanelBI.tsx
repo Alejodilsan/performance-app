@@ -76,7 +76,7 @@ export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVer
   }, [bi, filtrados, potencialEvaluado]);
 
   const hayFiltros = filtros.areaId !== null || !!filtros.sede || !!filtros.contrato;
-  const selectCls = 'text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 outline-none focus:border-[#FF4C4C]';
+  const selectCls = 'text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 outline-none focus:border-acento-500';
 
   return (
     <div className="animate-in fade-in space-y-6">
@@ -98,7 +98,7 @@ export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVer
           <option value="">Todos los contratos</option>
           {contratos.map(c => <option key={c} value={c}>{TIPOS_CONTRATO[c]}</option>)}
         </select>
-        {hayFiltros && <button type="button" onClick={() => setFiltros(FILTROS_VACIOS)} className="text-xs font-bold text-[#FF4C4C] hover:underline">Limpiar</button>}
+        {hayFiltros && <button type="button" onClick={() => setFiltros(FILTROS_VACIOS)} className="text-xs font-bold text-acento-700 hover:underline">Limpiar</button>}
         <div className="ml-auto flex items-center gap-2">
           {cargando && <span className="text-[11px] text-slate-400">Actualizando…</span>}
           {bi?.puedeEditarConfig && (
@@ -123,7 +123,7 @@ export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVer
           {/* Indicadores principales */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <Indicador titulo="Cumplimiento promedio" valor={`${resumen.promedio}%`} detalle={`${resumen.conKpis} de ${filtrados.length} con KPIs`} destacado />
-            <Indicador titulo="Headcount" valor={String(filtrados.length)} detalle={`${resumen.bajos} en bajo desempeño`} />
+            <Indicador titulo="Headcount" valor={String(filtrados.length)} detalle={`${resumen.bajos} con oportunidad de mejora`} />
             <Indicador titulo="Talento clave" valor={String(resumen.clave)}
               detalle={resumen.claveEnRiesgo > 0 ? `! ${resumen.claveEnRiesgo} con riesgo de fuga` : 'Sin señales de riesgo'}
               alerta={resumen.claveEnRiesgo > 0} />
@@ -176,9 +176,9 @@ export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVer
 
 function Indicador({ titulo, valor, detalle, destacado, alerta }: { titulo: string; valor: string; detalle?: ReactNode; destacado?: boolean; alerta?: boolean }) {
   return (
-    <div className={`p-4 rounded-2xl border shadow-sm ${destacado ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-100'}`}>
+    <div className={`p-4 rounded-2xl border shadow-sm ${destacado ? 'bg-marca-900 border-slate-700 text-white' : 'bg-white border-slate-100'}`}>
       <p className={`text-[10px] font-bold uppercase tracking-wider ${destacado ? 'text-slate-400' : 'text-slate-400'}`}>{titulo}</p>
-      <p className={`text-2xl font-black mt-1 ${destacado ? 'text-white' : 'text-slate-800'}`}>{valor}</p>
+      <p className={`text-2xl font-black mt-1 ${destacado ? 'text-white' : 'text-marca-900'}`}>{valor}</p>
       {detalle && <p className={`text-[11px] mt-0.5 ${alerta ? 'text-red-700 font-semibold' : destacado ? 'text-slate-300' : 'text-slate-500'}`}>{detalle}</p>}
     </div>
   );

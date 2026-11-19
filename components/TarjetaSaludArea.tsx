@@ -77,13 +77,13 @@ export function TarjetaSaludArea({
   ).length;
 
   // Semáforo de Salud Organizacional
-  let estadoSalud = { label: '🟢 Saludable', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  let estadoSalud = { label: '🟢 En crecimiento', badgeClass: 'bg-acento-50 text-acento-700 border-acento-200' };
   if (total === 0) {
     estadoSalud = { label: '⚪ Sin Equipo', badgeClass: 'bg-slate-100 text-slate-500 border-slate-200' };
   } else if (promedio < u.umbral_desempeno_bajo || planesVencidos >= 3) {
-    estadoSalud = { label: '🔴 Riesgo Crítico', badgeClass: 'bg-red-50 text-red-700 border-red-200' };
+    estadoSalud = { label: '🟠 Requiere acompañamiento', badgeClass: 'bg-amber-50 text-amber-800 border-amber-300' };
   } else if (promedio < u.umbral_desempeno_alto || planesVencidos > 0 || enRiesgo > 0) {
-    estadoSalud = { label: '🟡 En Observación', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' };
+    estadoSalud = { label: '🔵 En avance', badgeClass: 'bg-marca-50 text-marca-700 border-marca-200' };
   }
 
   const liderActual = todosLosEmpleados.find(e => e.id === area.lider_id);
@@ -117,7 +117,7 @@ export function TarjetaSaludArea({
                 <div className="flex items-center gap-1.5">
                   <input
                     autoFocus
-                    className="text-lg font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 outline-none focus:border-[#FF4C4C]"
+                    className="text-lg font-bold text-marca-950 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 outline-none focus:border-acento-500"
                     value={nombreEditado}
                     onChange={e => setNombreEditado(e.target.value)}
                     onKeyDown={e => {
@@ -125,11 +125,11 @@ export function TarjetaSaludArea({
                       if (e.key === 'Escape') { setNombreEditado(area.nombre); setEditandoNombre(false); }
                     }}
                   />
-                  <button type="button" onClick={guardarNombre} className="text-[11px] font-bold text-white bg-slate-800 px-2.5 py-1 rounded-lg hover:bg-slate-900">Guardar</button>
+                  <button type="button" onClick={guardarNombre} className="text-[11px] font-bold text-white bg-marca-900 px-2.5 py-1 rounded-lg hover:bg-marca-800">Guardar</button>
                   <button type="button" onClick={() => { setNombreEditado(area.nombre); setEditandoNombre(false); }} className="text-[11px] font-bold text-slate-500 px-2 py-1 rounded-lg hover:bg-slate-100">Cancelar</button>
                 </div>
               ) : (
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight">{area.nombre}</h2>
+                <h2 className="text-xl font-bold text-marca-950 tracking-tight">{area.nombre}</h2>
               )}
               <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${estadoSalud.badgeClass}`}>
                 {estadoSalud.label}
@@ -137,7 +137,7 @@ export function TarjetaSaludArea({
               {puedeEditarEstructura && !editandoNombre && (renombrarArea || eliminarArea) && (
                 <div className="flex items-center gap-1">
                   {renombrarArea && (
-                    <button type="button" onClick={() => { setNombreEditado(area.nombre); setEditandoNombre(true); }} title="Editar nombre del área" className="text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-2 py-0.5 rounded-lg">
+                    <button type="button" onClick={() => { setNombreEditado(area.nombre); setEditandoNombre(true); }} title="Editar nombre del área" className="text-[11px] font-bold text-slate-500 hover:text-marca-900 hover:bg-slate-100 px-2 py-0.5 rounded-lg">
                       ✏️ Editar
                     </button>
                   )}
@@ -174,7 +174,7 @@ export function TarjetaSaludArea({
             </div>
 
             <div className="text-right pl-3 border-l border-slate-200">
-              <span className="text-2xl font-black text-slate-800">{promedio}%</span>
+              <span className="text-2xl font-black text-marca-900">{promedio}%</span>
               <span className="block text-[9px] uppercase font-bold text-slate-400">Promedio</span>
             </div>
           </div>
@@ -195,15 +195,15 @@ export function TarjetaSaludArea({
             <span className="text-[10px] text-slate-400 ml-1">colaboradores</span>
           </div>
 
-          <div className={`p-2.5 rounded-xl border ${enRiesgo > 0 ? 'bg-red-50/80 border-red-100' : 'bg-slate-50/80 border-slate-100'}`}>
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">En Riesgo (&lt;60%)</span>
-            <span className={`text-sm font-black ${enRiesgo > 0 ? 'text-[#FF4C4C]' : 'text-slate-700'}`}>{enRiesgo}</span>
-            <span className="text-[10px] text-slate-400 ml-1">en alerta</span>
+          <div className={`p-2.5 rounded-xl border ${enRiesgo > 0 ? 'bg-amber-50/80 border-amber-100' : 'bg-slate-50/80 border-slate-100'}`}>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Por impulsar (&lt;{u.umbral_desempeno_bajo}%)</span>
+            <span className={`text-sm font-black ${enRiesgo > 0 ? 'text-amber-600' : 'text-slate-700'}`}>{enRiesgo}</span>
+            <span className="text-[10px] text-slate-400 ml-1">con oportunidad</span>
           </div>
 
           <div className={`p-2.5 rounded-xl border ${planesVencidos > 0 ? 'bg-red-50/80 border-red-100' : 'bg-slate-50/80 border-slate-100'}`}>
             <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Compromisos</span>
-            <span className="text-sm font-black text-slate-800">{planesPendientes}</span>
+            <span className="text-sm font-black text-marca-900">{planesPendientes}</span>
             <span className="text-[10px] text-slate-400 ml-1">
               {planesVencidos > 0 ? `(${planesVencidos} vencidos ⚠️)` : 'activos'}
             </span>
@@ -255,7 +255,7 @@ export function TarjetaSaludArea({
             onClick={onToggle}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               estaAbierta
-                ? 'bg-slate-900 text-white'
+                ? 'bg-marca-950 text-white'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >

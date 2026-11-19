@@ -36,7 +36,7 @@ const ICONO: Record<Hoja, string> = { areas: '🏢', cargos: '💼', colaborador
 
 const ESTILO_ACCION: Record<AccionFila, { texto: string; clase: string }> = {
   crear: { texto: '＋ Nuevo', clase: 'bg-emerald-100 text-emerald-800' },
-  actualizar: { texto: '↻ Actualiza', clase: 'bg-blue-100 text-blue-800' },
+  actualizar: { texto: '↻ Actualiza', clase: 'bg-marca-100 text-marca-800' },
   sin_cambios: { texto: '＝ Sin cambios', clase: 'bg-slate-100 text-slate-600' },
   error: { texto: '✕ Error', clase: 'bg-red-100 text-red-800' },
 };
@@ -191,18 +191,18 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
   const resumenHoja = resumenAcciones(filasDe(hojaActiva));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-3 md:p-6 animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-3 md:p-6 animate-in fade-in">
       <div className="bg-white w-full max-w-5xl h-full max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header + pasos */}
         <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div>
-            <h3 className="text-base font-bold text-slate-800">📥 Carga masiva</h3>
+            <h3 className="text-base font-bold text-marca-900">📥 Carga masiva</h3>
             <p className="text-[11px] text-slate-500">Áreas, cargos y colaboradores desde un solo Excel. Verás cada cambio antes de aplicarlo.</p>
           </div>
           <ol className="flex items-center gap-1.5" aria-label="Pasos">
             {PASOS.map((p, i) => (
-              <li key={p.id} className={`flex items-center gap-1.5 text-[11px] font-bold ${i <= indicePaso ? 'text-slate-800' : 'text-slate-400'}`}>
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${i < indicePaso ? 'bg-emerald-600 text-white' : i === indicePaso ? 'bg-slate-800 text-white' : 'bg-slate-100'}`}>
+              <li key={p.id} className={`flex items-center gap-1.5 text-[11px] font-bold ${i <= indicePaso ? 'text-marca-900' : 'text-slate-400'}`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${i < indicePaso ? 'bg-emerald-600 text-white' : i === indicePaso ? 'bg-marca-900 text-white' : 'bg-slate-100'}`}>
                   {i < indicePaso ? '✓' : i + 1}
                 </span>
                 <span className="hidden sm:inline">{p.titulo}</span>
@@ -243,8 +243,8 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
                     Trae tus áreas y cargos actuales precargados, listas desplegables enlazadas entre hojas y una hoja de instrucciones.
                   </p>
                   <button type="button" disabled={!!ocupado || !ctxApi} onClick={() => plantilla(true)}
-                    className="w-full text-left p-3 rounded-xl border-2 border-slate-800 hover:bg-slate-50 disabled:opacity-50">
-                    <span className="text-sm font-bold text-slate-800">⬇️ Con mis {activos.length} colaboradores actuales</span>
+                    className="w-full text-left p-3 rounded-xl border-2 border-marca-900 hover:bg-slate-50 disabled:opacity-50">
+                    <span className="text-sm font-bold text-marca-900">⬇️ Con mis {activos.length} colaboradores actuales</span>
                     <span className="block text-[11px] text-slate-500">Para completar datos: llena lo que falta y vuelve a subirlo.</span>
                   </button>
                   <button type="button" disabled={!!ocupado || !ctxApi} onClick={() => plantilla(false)}
@@ -263,7 +263,7 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
                     onDragOver={e => { e.preventDefault(); setArrastrando(true); }}
                     onDragLeave={() => setArrastrando(false)}
                     onDrop={e => { e.preventDefault(); setArrastrando(false); cargar(e.dataTransfer.files?.[0]); }}
-                    className={`flex-1 min-h-[160px] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-1 p-6 transition disabled:opacity-50 ${arrastrando ? 'border-[#FF4C4C] bg-red-50/50' : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50'}`}
+                    className={`flex-1 min-h-[160px] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-1 p-6 transition disabled:opacity-50 ${arrastrando ? 'border-acento-500 bg-acento-50/60' : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50'}`}
                   >
                     <span className="text-3xl">📄</span>
                     <span className="text-sm font-bold text-slate-700">Arrastra el archivo aquí o haz clic</span>
@@ -303,7 +303,7 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
                             const repetida = clave && duplicadas.includes(clave);
                             return (
                               <tr key={i} className={clave ? '' : 'bg-slate-50/50'}>
-                                <td className="px-4 py-2 font-bold text-slate-800">{enc || <span className="italic text-slate-400">(sin título)</span>}</td>
+                                <td className="px-4 py-2 font-bold text-marca-900">{enc || <span className="italic text-slate-400">(sin título)</span>}</td>
                                 <td className="px-3 py-2 text-slate-500 max-w-[220px] truncate">{hoja.filas.find(f => f.celdas[i]?.trim())?.celdas[i] || '—'}</td>
                                 <td className="px-4 py-2">
                                   <select
@@ -347,9 +347,9 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {([['crear', 'Se crearán'], ['actualizar', 'Se actualizarán'], ['sin_cambios', 'Sin cambios'], ['error', 'Con errores']] as [AccionFila, string][]).map(([a, t]) => (
                   <button key={a} type="button" onClick={() => setFiltro(filtro === a ? 'todas' : a)}
-                    className={`text-left p-3 rounded-xl border transition ${filtro === a ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200 hover:border-slate-300'}`}>
+                    className={`text-left p-3 rounded-xl border transition ${filtro === a ? 'border-marca-900 ring-1 ring-marca-900' : 'border-slate-200 hover:border-slate-300'}`}>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ESTILO_ACCION[a].clase}`}>{ESTILO_ACCION[a].texto}</span>
-                    <p className="text-2xl font-black text-slate-800 mt-1">{resumenHoja[a]}</p>
+                    <p className="text-2xl font-black text-marca-900 mt-1">{resumenHoja[a]}</p>
                     <p className="text-[11px] text-slate-500">{t}</p>
                   </button>
                 ))}
@@ -359,11 +359,11 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
                 {hojaActiva === 'colaboradores' && (
                   <>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="accent-[#FF4C4C]" checked={opciones.crearPuestos} onChange={e => setOpciones(o => ({ ...o, crearPuestos: e.target.checked }))} />
+                      <input type="checkbox" className="accent-acento-600" checked={opciones.crearPuestos} onChange={e => setOpciones(o => ({ ...o, crearPuestos: e.target.checked }))} />
                       Crear los cargos que no existen (en el área de cada colaborador){analisis.colaboradores.puestosNuevos.length > 0 && <strong> ({analisis.colaboradores.puestosNuevos.map(c => `${c.nombre} · ${c.areaNombre}`).join(', ')})</strong>}
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="accent-[#FF4C4C]" checked={opciones.crearAreas} onChange={e => setOpciones(o => ({ ...o, crearAreas: e.target.checked }))} />
+                      <input type="checkbox" className="accent-acento-600" checked={opciones.crearAreas} onChange={e => setOpciones(o => ({ ...o, crearAreas: e.target.checked }))} />
                       Crear las áreas que no existen (como áreas principales){analisis.colaboradores.areasNuevas.length > 0 && <strong> ({analisis.colaboradores.areasNuevas.join(', ')})</strong>}
                     </label>
                   </>
@@ -375,7 +375,7 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
                   <span className="text-slate-500">Los nombres se comparan sin mayúsculas, tildes ni espacios de más: lo que ya existe se actualiza, nunca se duplica.</span>
                 )}
                 {todas.some(f => f.accion === 'error') && (
-                  <button type="button" onClick={bajarErrores} className="ml-auto font-bold text-[#FF4C4C] hover:underline">⬇️ Descargar filas con errores para corregir</button>
+                  <button type="button" onClick={bajarErrores} className="ml-auto font-bold text-acento-700 hover:underline">⬇️ Descargar filas con errores para corregir</button>
                 )}
               </div>
 
@@ -447,32 +447,32 @@ export function AsistenteImportacion({ activos, desvinculados, areas, puestos, e
               <>
                 <button type="button" onClick={() => setPaso('inicio')} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">← Otro archivo</button>
                 <button type="button" disabled={!columnasListas || !ctxApi} onClick={() => { setFiltro('todas'); setPaso('revision'); }}
-                  className="px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl disabled:opacity-40">Revisar cambios →</button>
+                  className="px-5 py-2 text-xs font-bold text-white bg-marca-900 hover:bg-marca-800 rounded-xl disabled:opacity-40">Revisar cambios →</button>
               </>
             )}
             {paso === 'revision' && analisis && (
               <>
                 {hayActualizaciones && (
-                  <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
-                    <input type="checkbox" className="accent-blue-600" checked={confirmaCambios} onChange={e => setConfirmaCambios(e.target.checked)} />
+                  <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer bg-marca-50 border border-marca-200 rounded-xl px-3 py-2">
+                    <input type="checkbox" className="accent-marca-600" checked={confirmaCambios} onChange={e => setConfirmaCambios(e.target.checked)} />
                     Confirmo que se modificarán <strong>{total.actualizar}</strong> registro(s) existente(s)
                   </label>
                 )}
                 {aCrearColab > 0 && (
                   <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                    <input type="checkbox" className="accent-[#FF4C4C]" checked={darAcceso} onChange={e => setDarAcceso(e.target.checked)} />
+                    <input type="checkbox" className="accent-acento-600" checked={darAcceso} onChange={e => setDarAcceso(e.target.checked)} />
                     🔑 Dar acceso a los {aCrearColab} nuevo(s)
                   </label>
                 )}
                 <button type="button" onClick={() => setPaso('columnas')} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">← Columnas</button>
                 <button type="button" disabled={!puedeAplicar || !!ocupado || !!ctxApi?.migracionPendiente} onClick={aplicar}
-                  className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl disabled:opacity-40">
+                  className="px-5 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl disabled:opacity-40">
                   Aplicar ({total.crear} nuevos · {total.actualizar} actualizaciones)
                 </button>
               </>
             )}
             {(paso === 'resultado' || paso === 'inicio') && (
-              <button type="button" onClick={onClose} className="px-5 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl">{paso === 'resultado' ? 'Listo' : 'Cerrar'}</button>
+              <button type="button" onClick={onClose} className="px-5 py-2 text-xs font-bold text-white bg-marca-900 hover:bg-marca-800 rounded-xl">{paso === 'resultado' ? 'Listo' : 'Cerrar'}</button>
             )}
           </div>
         </div>
@@ -490,7 +490,7 @@ function PestanasHoja({ hojas, activa, onCambiar, etiqueta, alerta }: {
     <div className="flex flex-wrap gap-2" role="tablist">
       {hojas.map(h => (
         <button key={h} type="button" role="tab" aria-selected={activa === h} onClick={() => onCambiar(h)}
-          className={`px-4 py-2 rounded-xl border text-left transition ${activa === h ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 text-slate-700 hover:border-slate-300'}`}>
+          className={`px-4 py-2 rounded-xl border text-left transition ${activa === h ? 'border-marca-900 bg-marca-900 text-white' : 'border-slate-200 text-slate-700 hover:border-slate-300'}`}>
           <span className="text-xs font-bold">{ICONO[h]} {NOMBRE_HOJA[h]}{alerta(h) && <span className="ml-1 text-red-400">●</span>}</span>
           <span className={`block text-[10px] ${activa === h ? 'text-slate-300' : 'text-slate-500'}`}>{etiqueta(h)}</span>
         </button>
@@ -505,7 +505,7 @@ function PanelParecidos({ parecidos, pendientes, onDecidir }: { parecidos: Parec
   return (
     <div className={`border rounded-2xl p-4 space-y-3 ${pendientes > 0 ? 'border-amber-300 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/40'}`}>
       <div>
-        <p className="text-sm font-black text-slate-800">🔎 Posibles duplicados {pendientes > 0 ? `(${pendientes} por decidir)` : '· todos decididos'}</p>
+        <p className="text-sm font-black text-marca-900">🔎 Posibles duplicados {pendientes > 0 ? `(${pendientes} por decidir)` : '· todos decididos'}</p>
         <p className="text-[11px] text-slate-600">Estos nombres se parecen a otros. Unifícalos si son lo mismo, para no crear registros repetidos.</p>
       </div>
       <div className="space-y-2">
@@ -513,7 +513,7 @@ function PanelParecidos({ parecidos, pendientes, onDecidir }: { parecidos: Parec
           <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center gap-2">
             <div className="md:w-72 shrink-0 min-w-0">
               <span className="text-[10px] font-bold uppercase text-slate-400">{TIPO_PARECIDO[p.tipo]}{p.ambito ? ` · en ${p.ambito}` : ''}</span>
-              <p className="text-sm font-bold text-slate-800 truncate">«{p.nombre}»</p>
+              <p className="text-sm font-bold text-marca-900 truncate">«{p.nombre}»</p>
               <p className="text-[10px] text-slate-500 truncate" title={usos(p)}>{usos(p)}</p>
             </div>
             <div className="flex flex-wrap gap-1.5 flex-1">
@@ -521,7 +521,7 @@ function PanelParecidos({ parecidos, pendientes, onDecidir }: { parecidos: Parec
                 const elegido = !!p.decision && normalizarNombre(p.decision) === normalizarNombre(c.nombre);
                 return (
                   <button key={c.nombre + c.origen} type="button" onClick={() => onDecidir(p.id, c.nombre)}
-                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition ${elegido ? 'bg-slate-800 border-slate-800 text-white' : 'border-slate-200 hover:border-slate-400 text-slate-700'}`}>
+                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition ${elegido ? 'bg-marca-900 border-marca-900 text-white' : 'border-slate-200 hover:border-slate-400 text-slate-700'}`}>
                     Es «<strong>{c.nombre}</strong>» <span className={elegido ? 'text-slate-300' : 'text-slate-400'}>({c.origen === 'existente' ? 'ya existe' : 'en el archivo'})</span>
                   </button>
                 );
@@ -553,7 +553,7 @@ function FilaRevision({ fila: f, hoja }: { fila: FilaEstructura | FilaAnalizada;
     <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-2">
       <div className="sm:w-64 shrink-0 min-w-0">
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ESTILO_ACCION[f.accion].clase}`}>{ESTILO_ACCION[f.accion].texto}</span>
-        <p className="text-sm font-bold text-slate-800 truncate mt-1">{titulo}</p>
+        <p className="text-sm font-bold text-marca-900 truncate mt-1">{titulo}</p>
         <p className="text-[10px] text-slate-500 truncate">{subtitulo}</p>
       </div>
       <div className="flex-1 min-w-0 space-y-1">
@@ -561,7 +561,7 @@ function FilaRevision({ fila: f, hoja }: { fila: FilaEstructura | FilaAnalizada;
         {(f.accion === 'actualizar' || f.accion === 'sin_cambios') && f.cambios.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {f.cambios.map((x, i) => (
-              <span key={i} className="text-[10px] bg-blue-50 border border-blue-100 text-slate-700 px-2 py-0.5 rounded-full">
+              <span key={i} className="text-[10px] bg-marca-50 border border-marca-100 text-slate-700 px-2 py-0.5 rounded-full">
                 <strong>{x.campo}:</strong> <span className="text-slate-400 line-through">{x.antes}</span> → {x.despues}
               </span>
             ))}

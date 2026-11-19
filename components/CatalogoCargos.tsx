@@ -24,7 +24,7 @@ interface Props {
   onClose: () => void;
 }
 
-const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]';
+const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500';
 const labelCls = 'text-[10px] font-black uppercase text-slate-400 block mb-1';
 
 /** Catálogo de cargos (tabla "puestos") y niveles de la empresa. Solo Admin. */
@@ -34,17 +34,17 @@ export function CatalogoCargos(props: Props) {
   const sinArea = puestos.filter(p => p.area_id == null).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-3 md:p-6 animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-3 md:p-6 animate-in fade-in">
       <div className="bg-white w-full max-w-4xl h-full max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div>
-            <h3 className="text-base font-bold text-slate-800">💼 Catálogo de cargos</h3>
+            <h3 className="text-base font-bold text-marca-900">💼 Catálogo de cargos</h3>
             <p className="text-[11px] text-slate-500">Cada cargo pertenece a un área. Los nombres no se repiten dentro de un área (sin importar mayúsculas ni tildes).</p>
           </div>
           <div className="flex items-center gap-2">
             {(['cargos', 'niveles'] as const).map(p => (
               <button key={p} type="button" onClick={() => setPestana(p)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold ${pestana === p ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold ${pestana === p ? 'bg-marca-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
                 {p === 'cargos' ? `Cargos (${puestos.length})` : `Niveles (${niveles.length})`}
                 {p === 'cargos' && sinArea > 0 && <span className="ml-1 text-amber-400">●</span>}
               </button>
@@ -101,7 +101,7 @@ function ListaCargos({ puestos, areas, niveles, empleados, rangos, monedaPrincip
           {[...areas].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
         <button type="button" disabled={areas.length === 0} onClick={() => setEditando('nuevo')}
-          className="ml-auto bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-900 disabled:opacity-40">+ Nuevo cargo</button>
+          className="ml-auto bg-marca-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-marca-800 disabled:opacity-40">+ Nuevo cargo</button>
       </div>
 
       {editando === 'nuevo' && (
@@ -133,7 +133,7 @@ function ListaCargos({ puestos, areas, niveles, empleados, rangos, monedaPrincip
               return (
                 <div key={p.id} className="px-4 py-2.5 flex flex-wrap items-center gap-2">
                   <div className="flex-1 min-w-[180px]">
-                    <p className="text-sm font-bold text-slate-800">{p.nombre}</p>
+                    <p className="text-sm font-bold text-marca-900">{p.nombre}</p>
                     <p className="text-[10px] text-slate-500">
                       {[niveles.find(x => x.id === p.nivel_id)?.nombre, `${n} persona(s)`, r && `Rango ${[r.salario_min, r.salario_max].map(v => (v == null ? '—' : Number(v).toLocaleString('es-CO'))).join(' – ')} ${r.moneda}`, p.descripcion && 'con descripción']
                         .filter(Boolean).join(' · ')}
@@ -187,7 +187,7 @@ function FormCargo({ puestos, areas, niveles, monedaPrincipal, cargo, rango, are
   }
 
   return (
-    <form onSubmit={guardar} className="border-2 border-slate-800 rounded-2xl p-4 space-y-3 bg-white">
+    <form onSubmit={guardar} className="border-2 border-marca-900 rounded-2xl p-4 space-y-3 bg-white">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className={labelCls}>Nombre del cargo *</label>
@@ -232,7 +232,7 @@ function FormCargo({ puestos, areas, niveles, monedaPrincipal, cargo, rango, are
       )}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancelar} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
-        <button type="submit" disabled={guardando} className="px-5 py-2 text-xs font-bold text-white bg-[#FF4C4C] hover:bg-red-600 rounded-xl disabled:opacity-50">
+        <button type="submit" disabled={guardando} className="px-5 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl disabled:opacity-50">
           {guardando ? 'Guardando…' : cargo ? 'Guardar cambios' : 'Crear cargo'}
         </button>
       </div>
@@ -267,7 +267,7 @@ function ListaNiveles({ niveles, puestos, onGuardarNivel, onEliminarNivel, onOrd
       <form onSubmit={agregar} className="space-y-1">
         <div className="flex gap-2">
           <input className={inputCls} placeholder="Nuevo nivel, ej: Profesional" value={nuevo} onChange={e => setNuevo(e.target.value)} />
-          <button type="submit" disabled={!limpiarNombre(nuevo) || !!duplicado(nuevo)} className="bg-slate-800 text-white px-4 rounded-xl text-xs font-bold disabled:opacity-40">+ Nivel</button>
+          <button type="submit" disabled={!limpiarNombre(nuevo) || !!duplicado(nuevo)} className="bg-marca-900 text-white px-4 rounded-xl text-xs font-bold disabled:opacity-40">+ Nivel</button>
         </div>
         {duplicado(nuevo) && <p className="text-[11px] font-semibold text-red-600">Ya existe el nivel «{duplicado(nuevo)!.nombre}».</p>}
         {!duplicado(nuevo) && parecidosNuevo.length > 0 && <p className="text-[11px] text-amber-700">◐ Se parece a {parecidosNuevo.map(p => `«${p.nombre}»`).join(', ')}.</p>}
@@ -284,12 +284,12 @@ function ListaNiveles({ niveles, puestos, onGuardarNivel, onEliminarNivel, onOrd
                 if (await onGuardarNivel(n.id, limpiarNombre(editando.nombre))) setEditando(null);
               }}>
                 <input className={inputCls} autoFocus value={editando.nombre} onChange={e => setEditando({ id: n.id, nombre: e.target.value })} />
-                <button type="submit" disabled={!!duplicado(editando.nombre, n.id)} className="px-2.5 rounded-xl bg-slate-800 text-white text-xs font-bold disabled:opacity-40">✓</button>
+                <button type="submit" disabled={!!duplicado(editando.nombre, n.id)} className="px-2.5 rounded-xl bg-marca-900 text-white text-xs font-bold disabled:opacity-40">✓</button>
                 <button type="button" onClick={() => setEditando(null)} className="px-2 rounded-xl text-slate-500 text-xs font-bold hover:bg-slate-100">✕</button>
               </form>
             ) : (
               <>
-                <span className="flex-1 text-sm font-bold text-slate-800">{n.nombre} <span className="text-[10px] font-normal text-slate-500">· {usos(n.id)} cargo(s)</span></span>
+                <span className="flex-1 text-sm font-bold text-marca-900">{n.nombre} <span className="text-[10px] font-normal text-slate-500">· {usos(n.id)} cargo(s)</span></span>
                 <button type="button" disabled={i === 0} onClick={() => mover(i, -1)} className="px-2 py-1 rounded-lg text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30" aria-label="Subir">↑</button>
                 <button type="button" disabled={i === niveles.length - 1} onClick={() => mover(i, 1)} className="px-2 py-1 rounded-lg text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30" aria-label="Bajar">↓</button>
                 <button type="button" onClick={() => setEditando({ id: n.id, nombre: n.nombre })} className="px-2 py-1 rounded-lg text-[11px] font-bold text-slate-600 hover:bg-slate-100">Renombrar</button>

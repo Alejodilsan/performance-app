@@ -1,10 +1,12 @@
 'use client'
+import { etiquetaPotencial } from '@/lib/motivacion'
 import { useState } from 'react'
 import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { ETIQUETA_ESTADO_ACCESO } from '@/lib/accesos'
 import { FormularioNuevoKPI } from './FormularioNuevoKPI'
 import { ModalEvaluacionPotencial } from './ModalEvaluacionPotencial'
 import { useUmbrales, coloresDesempeno } from '@/lib/umbrales'
+import { logrosDe } from '@/lib/motivacion'
 
 interface PropsTarjeta {
   emp: Empleado;
@@ -27,6 +29,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
   const planesActivos = emp.planes_mejora?.filter(p => p.estado !== 'completado') || [];
   const planesVencidos = planesActivos.filter(p => calcularGantt(p.created_at, p.fecha_limite).esVencido);
   const umbrales = useUmbrales();
+  const logros = logrosDe(emp);
   const colorDesempeno = coloresDesempeno(emp.cumplimiento_general, umbrales).texto;
   const barBg = coloresDesempeno(emp.cumplimiento_general, umbrales).barra;
   const [modalPotencialAbierto, setModalPotencialAbierto] = useState(false);
@@ -60,12 +63,18 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900 text-base truncate" title={emp.nombre}>
+                <h3 className="font-bold text-marca-950 text-base truncate" title={emp.nombre}>
                   {emp.nombre}
                 </h3>
                 {esLider && (
                   <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/60 font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
                     Líder
+                  </span>
+                )}
+                {logros.length > 0 && (
+                  <span className="text-[10px] bg-acento-50 text-acento-700 border border-acento-200 font-bold px-2 py-0.5 rounded-full shrink-0"
+                    title={logros.map(l => `${l.titulo}: ${l.detalle}`).join('\n')}>
+                    🏅 {logros.length}
                   </span>
                 )}
               </div>
@@ -95,7 +104,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
             <button
               type="button"
               onClick={() => funciones.verPerfilCompleto?.(emp)}
-              className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1 border border-blue-100"
+              className="text-[10px] font-bold text-marca-600 bg-marca-50 px-2.5 py-1 rounded-lg hover:bg-marca-100 transition-colors flex items-center gap-1 border border-marca-100"
             >
               👁️ Ver Curva
             </button>
@@ -142,12 +151,12 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
               className="bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-lg text-[11px] font-semibold text-slate-700 py-1 px-2.5 transition-colors flex items-center gap-1.5"
               title="Evaluar Potencial"
             >
-              {emp.potencial_score === 3 ? '⭐ Alto Potencial' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
+              {etiquetaPotencial(emp.potencial_score)}
               <span className="text-[9px] text-slate-400 ml-1">✏️</span>
             </button>
           ) : (
             <span className="bg-slate-50 text-slate-600 border border-slate-200/60 text-[11px] font-semibold px-2.5 py-1 rounded-lg">
-              {emp.potencial_score === 3 ? '⭐ Alto Potencial' : emp.potencial_score === 2 ? '🚀 Medio' : '🌱 Bajo'}
+              {etiquetaPotencial(emp.potencial_score)}
             </span>
           )}
 
@@ -158,7 +167,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                 <span>⚠️</span> {planesVencidos.length} Vencido{planesVencidos.length > 1 ? 's' : ''}
               </span>
             ) : planesActivos.length > 0 ? (
-              <span className="text-[11px] bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-lg">
+              <span className="text-[11px] bg-marca-50 text-marca-600 font-semibold px-2 py-0.5 rounded-lg">
                 🚀 {planesActivos.length} Plan{planesActivos.length > 1 ? 'es' : ''}
               </span>
             ) : (
@@ -183,7 +192,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
           className={`w-full py-2.5 text-center text-[11px] font-bold tracking-wider uppercase transition-colors flex items-center justify-center gap-2 ${
             estaExpandido
               ? 'text-slate-600 bg-slate-100'
-              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/60'
+              : 'text-slate-500 hover:text-marca-900 hover:bg-slate-100/60'
           }`}
         >
           <span>{estaExpandido ? 'Cerrar detalle' : 'Gestionar KPIs y Planes'}</span>
@@ -229,7 +238,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
               <div className="flex justify-between items-center">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Indicadores Clave</span>
                 <span className="text-xs font-bold text-slate-700">
-                  Score {periodoFiltro !== 'todos' ? `(${periodoFiltro})` : ''}: <span className="text-[#FF4C4C]">{cumplimientoPeriodo}%</span>
+                  Score {periodoFiltro !== 'todos' ? `(${periodoFiltro})` : ''}: <span className="text-acento-700">{cumplimientoPeriodo}%</span>
                 </span>
               </div>
 
@@ -241,7 +250,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                     type="button"
                     onClick={() => setPeriodoFiltro(p)}
                     className={`flex-1 py-1 rounded capitalize transition-all ${
-                      periodoFiltro === p ? 'bg-white text-slate-900 shadow-sm' : 'hover:text-slate-900'
+                      periodoFiltro === p ? 'bg-white text-marca-950 shadow-sm' : 'hover:text-marca-950'
                     }`}
                   >
                     {p}
@@ -271,7 +280,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                         <span className="truncate text-sm">{ind.titulo}</span>
                         <span className="text-[10px] text-slate-400 capitalize">({ind.periodo || 'trimestral'})</span>
                       </div>
-                      <span className={`text-lg ml-2 ${ind.progreso < umbrales.umbral_desempeno_bajo ? 'text-[#FF4C4C] font-black' : 'text-slate-800 font-black'}`}>
+                      <span className={`text-lg ml-2 ${ind.progreso < umbrales.umbral_desempeno_bajo ? 'text-amber-600 font-black' : 'text-marca-900 font-black'}`}>
                         {ind.progreso || 0}%
                       </span>
                     </div>
@@ -281,7 +290,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                   <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                     <div className="flex-1">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Meta a lograr:</span>
-                      <span className="text-sm font-bold text-slate-800">{ind.meta_esperada || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida || 'Und.'}</span></span>
+                      <span className="text-sm font-bold text-marca-900">{ind.meta_esperada || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida || 'Und.'}</span></span>
                     </div>
                     
                     <div className="w-px h-8 bg-slate-200 mx-2"></div>
@@ -292,7 +301,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                         <div className="flex items-center gap-2">
                            <input
                               type="number"
-                              className="w-20 p-1.5 text-xs bg-white border border-slate-300 rounded focus:border-[#FF4C4C] outline-none text-slate-800 font-bold"
+                              className="w-20 p-1.5 text-xs bg-white border border-slate-300 rounded focus:border-acento-500 outline-none text-marca-900 font-bold"
                               value={ind.resultado_actual === 0 ? '' : ind.resultado_actual}
                               placeholder="0"
                               onChange={(e) => {
@@ -303,14 +312,14 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                            <span className="text-xs text-slate-500">{ind.unidad_medida}</span>
                         </div>
                       ) : (
-                        <span className="text-sm font-bold text-slate-800">{ind.resultado_actual || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida}</span></span>
+                        <span className="text-sm font-bold text-marca-900">{ind.resultado_actual || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida}</span></span>
                       )}
                     </div>
                   </div>
 
                   {/* Barra de progreso */}
                   <div className="h-2 bg-slate-200 rounded-full overflow-hidden mt-3 w-full">
-                     <div className={`h-full rounded-full ${ind.progreso >= 100 ? 'bg-emerald-500' : ind.progreso >= 70 ? 'bg-blue-500' : 'bg-[#FF4C4C]'}`} style={{ width: `${ind.progreso || 0}%` }}></div>
+                     <div className={`h-full rounded-full transition-all duration-700 ${ind.progreso >= 100 ? 'bg-acento-500' : coloresDesempeno(ind.progreso || 0, umbrales).barra}`} style={{ width: `${ind.progreso || 0}%` }}></div>
                   </div>
 
                   {/* Feedback Continuo del Líder */}
@@ -416,7 +425,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                             <button
                               type="button"
                               onClick={() => enviarComentario(plan.id)}
-                              className="bg-slate-800 text-white px-2.5 rounded text-[10px] font-bold"
+                              className="bg-marca-900 text-white px-2.5 rounded text-[10px] font-bold"
                             >
                               Enviar
                             </button>
@@ -453,7 +462,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                 <button
                   type="button"
                   onClick={() => crearPlan(emp.id)}
-                  className="bg-slate-800 text-white px-3 rounded-lg font-bold hover:bg-slate-900 transition-colors"
+                  className="bg-marca-900 text-white px-3 rounded-lg font-bold hover:bg-marca-800 transition-colors"
                 >
                   +
                 </button>

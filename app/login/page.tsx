@@ -1,4 +1,5 @@
 'use client'
+import { MarcoAcceso } from '@/components/marca/MarcoAcceso'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -113,28 +114,24 @@ export default function Login() {
   // PANTALLA: Crear contraseña (viene de invitación o recovery link)
   if (vistaCrearClave) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-full max-w-md animate-in fade-in zoom-in-95">
-          <div className="text-center mb-8">
-            <div className="w-12 h-12 bg-blue-600 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-blue-200">
-              <span className="text-2xl text-white">🔐</span>
-            </div>
-            <h1 className="text-2xl font-black text-slate-800">Crea tu contraseña</h1>
+      <MarcoAcceso>
+          <div className="mb-7">
+            <h1 className="text-2xl font-extrabold text-marca-900">Crea tu contraseña</h1>
             <p className="text-sm text-slate-500 mt-2">Elige una contraseña segura para acceder a tu cuenta</p>
           </div>
 
           {mensaje.texto && (
-            <div className={`p-4 rounded-lg mb-6 text-sm font-medium border ${mensaje.tipo === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+            <div className={`p-4 rounded-lg mb-6 text-sm font-medium border ${mensaje.tipo === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-acento-50 text-acento-800 border-acento-200'}`}>
               {mensaje.tipo === 'error' ? '⚠️ ' : '✅ '}{mensaje.texto}
             </div>
           )}
 
           <form onSubmit={handleCrearClave} className="space-y-5">
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Nueva contraseña</label>
+              <label className="text-xs font-bold text-marca-500 uppercase tracking-wider">Nueva contraseña</label>
               <input
                 type="password"
-                className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm"
+                className="w-full mt-1 p-3 border border-marca-100 bg-marca-50/40 rounded-xl outline-none focus:border-acento-500 focus:ring-2 focus:ring-acento-100 transition-all text-sm"
                 placeholder="Mínimo 8 caracteres"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -143,10 +140,10 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Confirmar contraseña</label>
+              <label className="text-xs font-bold text-marca-500 uppercase tracking-wider">Confirmar contraseña</label>
               <input
                 type="password"
-                className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm"
+                className="w-full mt-1 p-3 border border-marca-100 bg-marca-50/40 rounded-xl outline-none focus:border-acento-500 focus:ring-2 focus:ring-acento-100 transition-all text-sm"
                 placeholder="Repite tu contraseña"
                 value={passwordConfirm}
                 onChange={e => setPasswordConfirm(e.target.value)}
@@ -157,26 +154,21 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-700 transition-colors disabled:bg-slate-400 mt-2"
+              className="w-full bg-acento-600 text-white font-bold py-3 rounded-xl shadow-md shadow-acento-600/20 hover:bg-acento-700 transition-colors disabled:bg-slate-400 mt-2"
             >
               {loading ? 'Guardando...' : 'Crear contraseña e ingresar →'}
             </button>
           </form>
-        </div>
-      </main>
+        </MarcoAcceso>
     )
   }
 
   // PANTALLA: Login normal / Recuperar clave
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-full max-w-md animate-in fade-in zoom-in-95">
+    <MarcoAcceso>
 
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-blue-600 rounded-xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-blue-200">
-            <span className="text-2xl text-white">🏢</span>
-          </div>
-          <h1 className="text-2xl font-black text-slate-800">
+        <div className="mb-7">
+          <h1 className="text-2xl font-extrabold text-marca-900">
             {vistaRecuperar ? 'Recuperar Acceso' : 'Bienvenido de nuevo'}
           </h1>
           <p className="text-sm text-slate-500 mt-2">
@@ -185,17 +177,17 @@ export default function Login() {
         </div>
 
         {mensaje.texto && (
-          <div className={`p-4 rounded-lg mb-6 text-sm font-medium border ${mensaje.tipo === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+          <div className={`p-4 rounded-lg mb-6 text-sm font-medium border ${mensaje.tipo === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-acento-50 text-acento-800 border-acento-200'}`}>
             {mensaje.tipo === 'error' ? '⚠️ ' : '✅ '}{mensaje.texto}
           </div>
         )}
 
         <form onSubmit={vistaRecuperar ? handleRecuperar : handleLogin} className="space-y-5">
           <div>
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Correo Corporativo</label>
+            <label className="text-xs font-bold text-marca-500 uppercase tracking-wider">Correo Corporativo</label>
             <input
               type="email"
-              className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm"
+              className="w-full mt-1 p-3 border border-marca-100 bg-marca-50/40 rounded-xl outline-none focus:border-acento-500 focus:ring-2 focus:ring-acento-100 transition-all text-sm"
               placeholder="ejemplo@empresa.com"
               value={email}
               onChange={e => setEmail(e.target.value)}
@@ -206,14 +198,14 @@ export default function Login() {
           {!vistaRecuperar && (
             <div>
               <div className="flex justify-between items-end">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Contraseña</label>
-                <button type="button" onClick={() => { setVistaRecuperar(true); setMensaje({ texto: '', tipo: '' }) }} className="text-xs font-bold text-blue-600 hover:text-blue-800">
+                <label className="text-xs font-bold text-marca-500 uppercase tracking-wider">Contraseña</label>
+                <button type="button" onClick={() => { setVistaRecuperar(true); setMensaje({ texto: '', tipo: '' }) }} className="text-xs font-bold text-acento-700 hover:text-acento-800">
                   ¿Olvidaste tu clave?
                 </button>
               </div>
               <input
                 type="password"
-                className="w-full mt-1 p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm"
+                className="w-full mt-1 p-3 border border-marca-100 bg-marca-50/40 rounded-xl outline-none focus:border-acento-500 focus:ring-2 focus:ring-acento-100 transition-all text-sm"
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -225,7 +217,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg shadow-md hover:bg-slate-900 transition-colors disabled:bg-slate-400 mt-2"
+            className="w-full bg-acento-600 text-white font-bold py-3 rounded-xl shadow-md shadow-acento-600/20 hover:bg-acento-700 transition-colors disabled:bg-slate-400 mt-2"
           >
             {loading ? 'Procesando...' : (vistaRecuperar ? 'Enviar enlace mágico' : 'Iniciar Sesión')}
           </button>
@@ -233,12 +225,11 @@ export default function Login() {
 
         {vistaRecuperar && (
           <div className="mt-6 text-center">
-            <button onClick={() => { setVistaRecuperar(false); setMensaje({ texto: '', tipo: '' }) }} className="text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors">
+            <button onClick={() => { setVistaRecuperar(false); setMensaje({ texto: '', tipo: '' }) }} className="text-sm font-bold text-slate-500 hover:text-marca-900 transition-colors">
               ← Volver al inicio de sesión
             </button>
           </div>
         )}
-      </div>
-    </main>
+      </MarcoAcceso>
   )
 }

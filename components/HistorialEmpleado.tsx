@@ -27,7 +27,7 @@ export function HistorialEmpleado({ empleadoId, fechaIngreso }: { empleadoId: nu
     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
       <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
         <div>
-          <h3 className="text-sm font-bold text-slate-800">🕓 Historial laboral</h3>
+          <h3 className="text-sm font-bold text-marca-900">🕓 Historial laboral</h3>
           <p className="text-[11px] text-slate-500">Cambios de cargo, área, jefe, condiciones y salario, registrados automáticamente.</p>
         </div>
         {estado.tipo === 'ok' && <ResumenTrayectoria eventos={estado.eventos} fechaIngreso={fechaIngreso} />}
@@ -53,7 +53,7 @@ export function HistorialEmpleado({ empleadoId, fechaIngreso }: { empleadoId: nu
                   {EVENTO[ev.tipo].icono}
                 </span>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                  <p className="text-xs font-bold text-slate-800">{EVENTO[ev.tipo].titulo}</p>
+                  <p className="text-xs font-bold text-marca-900">{EVENTO[ev.tipo].titulo}</p>
                   <time className="text-[10px] font-semibold text-slate-400" dateTime={ev.fecha}>{formatearFecha(ev.fecha)}</time>
                 </div>
                 <p className="text-[11px] text-slate-600">{describirEvento(ev, formatearMonto)}</p>

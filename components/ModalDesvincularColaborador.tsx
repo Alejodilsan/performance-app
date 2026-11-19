@@ -9,7 +9,7 @@ interface Props {
   onConfirm: (emp: Empleado, fecha: string, motivo: string) => Promise<boolean>;
 }
 
-const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-[#FF4C4C]';
+const inputCls = 'w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500';
 const labelCls = 'text-[10px] font-black uppercase text-slate-400 block mb-1';
 
 export function ModalDesvincularColaborador({ emp, esLiderDe, onClose, onConfirm }: Props) {
@@ -29,10 +29,10 @@ export function ModalDesvincularColaborador({ emp, esLiderDe, onClose, onConfirm
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-4 animate-in fade-in">
       <form onSubmit={confirmar} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-100 space-y-4">
         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-          <h3 className="text-base font-bold text-slate-800">Desvincular a {emp.nombre}</h3>
+          <h3 className="text-base font-bold text-marca-900">Desvincular a {emp.nombre}</h3>
           <button type="button" onClick={onClose} className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold text-xs">✕</button>
         </div>
 

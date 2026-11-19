@@ -95,13 +95,13 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
     `${o.nombre}\nIngreso: ${urlAcceso}\nUsuario: ${o.email}\nClave temporal: ${o.clave_temporal}\n(Se te pedirá crear tu propia contraseña al entrar)`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh] border border-slate-100 animate-in zoom-in-95 duration-200">
 
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/70 shrink-0">
           <div>
-            <h3 className="text-lg font-bold text-slate-800">{resultado ? 'Accesos generados' : 'Dar acceso a la plataforma'}</h3>
+            <h3 className="text-lg font-bold text-marca-900">{resultado ? 'Accesos generados' : 'Dar acceso a la plataforma'}</h3>
             <p className="text-xs text-slate-500">
               {resultado
                 ? 'Comparte estas credenciales de forma privada con cada colaborador.'
@@ -121,13 +121,13 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
                     key={f}
                     type="button"
                     onClick={() => setFiltro(f)}
-                    className={`text-[11px] font-bold px-3 py-1 rounded-full border transition ${filtro === f ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
+                    className={`text-[11px] font-bold px-3 py-1 rounded-full border transition ${filtro === f ? 'bg-marca-900 text-white border-marca-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
                   >
                     {txt} ({conteo[f]})
                   </button>
                 ))}
               </div>
-              <button onClick={toggleVisibles} disabled={visibles.length === 0} className="text-xs font-bold text-[#FF4C4C] hover:underline disabled:opacity-40">
+              <button onClick={toggleVisibles} disabled={visibles.length === 0} className="text-xs font-bold text-acento-700 hover:underline disabled:opacity-40">
                 {todosVisiblesMarcados ? 'Deseleccionar visibles' : 'Seleccionar visibles'}
               </button>
             </div>
@@ -142,13 +142,13 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
                     const marcado = seleccion.includes(emp.id);
                     const estado = ETIQUETA_ESTADO_ACCESO[estadoDe(emp)];
                     return (
-                      <label key={emp.id} className={`flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all ${marcado ? 'bg-red-50/50 border-[#FF4C4C]/40 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
-                        <input type="checkbox" checked={marcado} onChange={() => toggle(emp.id)} className="w-4 h-4 ml-1 accent-[#FF4C4C] cursor-pointer" />
+                      <label key={emp.id} className={`flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all ${marcado ? 'bg-acento-50/60 border-acento-400/60 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
+                        <input type="checkbox" checked={marcado} onChange={() => toggle(emp.id)} className="w-4 h-4 ml-1 accent-acento-600 cursor-pointer" />
                         <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm shrink-0">
                           {emp.nombre.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-slate-800 truncate">{emp.nombre}</p>
+                          <p className="text-sm font-bold text-marca-900 truncate">{emp.nombre}</p>
                           <p className="text-xs text-slate-500 truncate">{emp.email} • {emp.tipo_perfil || 'Empleado'}</p>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${estado.clase}`}>{estado.texto}</span>
@@ -162,7 +162,7 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-white flex flex-wrap gap-3 justify-between items-center shrink-0">
               <span className="text-sm font-bold text-slate-600">
-                <span className="text-[#FF4C4C]">{seleccion.length}</span> seleccionados
+                <span className="text-acento-700">{seleccion.length}</span> seleccionados
                 {seleccionConAcceso > 0 && <span className="block text-[11px] font-medium text-amber-700">{seleccionConAcceso} ya tienen acceso: se les restablecerá la clave</span>}
               </span>
               <div className="flex gap-3">
@@ -170,7 +170,7 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
                 <button
                   onClick={confirmar}
                   disabled={procesando || seleccion.length === 0}
-                  className="bg-[#FF4C4C] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-red-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-acento-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-acento-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {procesando ? 'Generando...' : `Generar accesos (${seleccion.length})`}
                 </button>
@@ -198,10 +198,10 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
                         {resultado.otorgados.map(o => (
                           <tr key={o.empleado_id}>
                             <td className="px-4 py-2.5">
-                              <p className="font-bold text-slate-800">{o.nombre} {o.cuenta_nueva ? '' : <span className="text-[10px] font-medium text-slate-400">(clave restablecida)</span>}</p>
+                              <p className="font-bold text-marca-900">{o.nombre} {o.cuenta_nueva ? '' : <span className="text-[10px] font-medium text-slate-400">(clave restablecida)</span>}</p>
                               <p className="text-[10px] text-slate-500">{o.email}</p>
                             </td>
-                            <td className="px-3 py-2.5 font-mono text-sm text-slate-800 select-all">{o.clave_temporal}</td>
+                            <td className="px-3 py-2.5 font-mono text-sm text-marca-900 select-all">{o.clave_temporal}</td>
                             <td className="px-4 py-2.5 text-right">
                               <button type="button" onClick={() => copiar(textoCredencial(o), o.empleado_id)} className="text-[10px] font-bold text-slate-600 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-slate-100">
                                 {copiadoId === o.empleado_id ? '✓ Copiado' : 'Copiar'}
@@ -242,7 +242,7 @@ export function ModalAccesos({ candidatos, onClose, onOtorgar, resultadoInicial 
                     </button>
                   </>
                 )}
-                <button type="button" onClick={cerrar} className="bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-900">Listo</button>
+                <button type="button" onClick={cerrar} className="bg-marca-900 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-marca-800">Listo</button>
               </div>
             </div>
           </>

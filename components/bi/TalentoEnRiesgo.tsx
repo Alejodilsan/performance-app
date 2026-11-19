@@ -34,7 +34,7 @@ export function TalentoEnRiesgo({ empleados, areas, config, potencialEvaluado, s
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 flex flex-col">
-      <h3 className="font-bold text-slate-800">🛡️ Talento clave en riesgo de fuga</h3>
+      <h3 className="font-bold text-marca-900">🛡️ Talento clave en riesgo de fuga</h3>
       <p className="text-xs text-slate-500 mb-4">
         {filas.length} persona(s) de talento clave · <strong className="text-slate-700">{enRiesgo.length} con señales de riesgo</strong>.
         {!senalesSalariales && ' (Las señales salariales solo las ve el Admin.)'}
@@ -50,7 +50,7 @@ export function TalentoEnRiesgo({ empleados, areas, config, potencialEvaluado, s
               <div key={emp.id} className={`p-3 rounded-xl border ${nivel === 'alto' ? 'border-red-200 bg-red-50/40' : nivel === 'medio' ? 'border-amber-200 bg-amber-50/40' : 'border-slate-100 bg-slate-50/40'}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-800 truncate">{emp.nombre}</p>
+                    <p className="text-sm font-bold text-marca-900 truncate">{emp.nombre}</p>
                     <p className="text-[10px] text-slate-500 truncate">
                       {emp.puesto} · {nombreArea(emp.area_id)} · {celda} · {emp.cumplimiento_general}%
                       {anios !== null && ` · ${anios < 1 ? '< 1 año' : `${Math.floor(anios)} año(s)`}`}
@@ -65,7 +65,7 @@ export function TalentoEnRiesgo({ empleados, areas, config, potencialEvaluado, s
                     {senales.map(s => <span key={s.clave} className="text-[10px] text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{s.texto}</span>)}
                   </div>
                 )}
-                <button type="button" onClick={() => onVerFicha(emp)} className="text-[10px] font-bold text-blue-600 hover:underline mt-2">Ver curva de desempeño →</button>
+                <button type="button" onClick={() => onVerFicha(emp)} className="text-[10px] font-bold text-marca-600 hover:underline mt-2">Ver curva de desempeño →</button>
               </div>
             );
           })}

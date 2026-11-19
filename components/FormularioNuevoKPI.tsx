@@ -71,7 +71,7 @@ export function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (ei
 
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={() => setAbierto(false)} className="flex-1 text-[10px] font-bold text-slate-500 hover:bg-slate-200 py-1.5 rounded transition">Cancelar</button>
-        <button type="submit" className="flex-1 text-[10px] font-bold text-white bg-slate-800 hover:bg-slate-900 py-1.5 rounded transition">Guardar KPI</button>
+        <button type="submit" className="flex-1 text-[10px] font-bold text-white bg-marca-900 hover:bg-marca-800 py-1.5 rounded transition">Guardar KPI</button>
       </div>
     </form>
   );
