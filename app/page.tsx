@@ -911,8 +911,9 @@ const toggleArea = (id: number) => {
       <aside className="w-[260px] bg-marca-900 bg-gradient-to-b from-marca-900 to-marca-950 flex flex-col z-20 hidden md:flex shrink-0">
         
         {/* Marca AlemiaHR y empresa */}
-        <div className="h-16 flex items-center px-5 border-b border-white/10 shrink-0">
-          <Logo variante="blanco" tamano="sm" />
+        {/* Franja blanca: el logo a color usa el mismo azul del menú y no se vería sobre él */}
+        <div className="h-16 flex items-center px-5 bg-white border-b border-marca-100 shrink-0">
+          <Logo variante="color" tamano="sm" />
         </div>
         {nombreEmpresa && (
           <div className="px-5 pt-4">

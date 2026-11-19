@@ -48,7 +48,10 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Títulos con la tipografía del logo */
+/* Logotipo: tipografía oficial de la marca */
+.font-marca { font-family: var(--font-jakarta), var(--font-titulo); }
+
+/* Títulos */
 h1, h2, h3, .font-titulo {
   font-family: var(--font-titulo);
   letter-spacing: -0.01em;

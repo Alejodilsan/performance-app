@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 770 195" width="770" height="195">
+  <defs>
+    <style>
+      .brand-text { font-family: 'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif; font-weight: 700; font-size: 76px; letter-spacing: -1.5px; }
+      .hr-text { font-family: 'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif; font-weight: 800; font-size: 44px; letter-spacing: 0.5px; }
+      .tagline { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 4.5px; }
+    </style>
+  </defs>
+  <g transform="translate(10, 8)">
+    <path d="M 16 126 L 56 44 C 60 36, 70 36, 74 44 L 114 128 C 120 140, 132 140, 138 128 L 154 78 L 166 96 L 146 144 C 134 166, 110 166, 98 144 L 65 72 L 32 138 Z" fill="#0F2942"/>
+    <path d="M 2 162 C 18 124, 46 112, 78 104 C 110 96, 134 76, 152 44 C 156 37, 165 37, 168 44 L 160 66 C 142 96, 116 114, 82 122 C 52 129, 32 140, 22 162 Z" fill="#0F2942"/>
+    <path d="M 164 42 C 168 42, 172 45, 174 52 L 204 156 L 182 156 L 161 78 L 154 64 Z" fill="#10B981"/>
+    <path d="M 110 134 C 134 102, 162 72, 192 44 L 176 34 L 234 20 L 214 78 L 202 62 C 172 90, 146 118, 124 146 C 118 144, 113 140, 110 134 Z" fill="#10B981"/>
+  </g>
+  <text x="260" y="124" class="brand-text" fill="#0F2942">Alemia</text>
+  <rect x="546" y="62" width="98" height="64" rx="12" fill="#10B981"/>
+  <text x="595" y="110" text-anchor="middle" class="hr-text" fill="#FFFFFF">HR</text>
+  <text x="263" y="158" class="tagline" fill="#0F2942">PERFORMANCE PLATFORM</text>
+</svg>

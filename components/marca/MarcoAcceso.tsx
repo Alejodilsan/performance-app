@@ -16,7 +16,10 @@ export function MarcoAcceso({ children }: { children: ReactNode }) {
       <section className="relative overflow-hidden bg-gradient-to-br from-marca-800 via-marca-900 to-marca-950 text-white px-8 py-10 lg:px-14 lg:py-14 flex flex-col">
         <FlechaCrecimiento className="absolute -right-16 -bottom-16 w-[420px] h-[420px] text-acento-500/15" />
         <div className="absolute -left-24 -top-24 w-72 h-72 rounded-full bg-acento-500/10 blur-3xl" aria-hidden />
-        <Logo variante="blanco" tamano="lg" bajada />
+        {/* Logo a color sobre tarjeta blanca (su azul se perdería sobre el panel) */}
+        <div className="relative self-start bg-white rounded-2xl px-5 py-4 shadow-lg shadow-marca-950/30">
+          <Logo variante="color" tamano="md" bajada />
+        </div>
         <div className="relative mt-10 lg:mt-auto max-w-md">
           <h2 className="text-3xl lg:text-4xl font-extrabold leading-tight">
             Impulsa el <span className="text-acento-400">crecimiento</span> de tu gente.

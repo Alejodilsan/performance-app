@@ -1,49 +1,58 @@
-// Marca AlemiaHR. Isotipo provisional en SVG (A + flecha de crecimiento + insignia HR) con los colores oficiales.
-// Cuando estén los archivos oficiales en /public, basta con reemplazar <Isotipo> por <img src="/...svg">.
+// Marca AlemiaHR (Propuesta 3, opción A). Trazos oficiales de public/marca/AlemiaHR_Logo_Principal_*.svg.
+// El isotipo se dibuja inline y el texto en HTML para usar la tipografía oficial (Plus Jakarta Sans):
+// un SVG cargado con <img> no puede usar fuentes web y se vería en Arial.
 
 const NAVY = '#0F2942';
 const VERDE = '#10B981';
 
-interface PropsIsotipo { tamano?: number; variante?: 'color' | 'blanco'; className?: string }
+// Recuadro de los trazos del isotipo (coordenadas del SVG oficial, sin el translate del grupo)
+const ANCHO = 238, ALTO = 152, Y0 = 16;
 
-export function Isotipo({ tamano = 32, variante = 'color', className }: PropsIsotipo) {
-  const letra = variante === 'blanco' ? '#FFFFFF' : NAVY;
+interface PropsIsotipo { alto?: number; variante?: 'color' | 'blanco'; className?: string }
+
+/** Isotipo: A + flecha de crecimiento. En blanco, todo blanco (versión oficial para fondos oscuros). */
+export function Isotipo({ alto = 32, variante = 'color', className }: PropsIsotipo) {
+  const base = variante === 'blanco' ? '#FFFFFF' : NAVY;
+  const acento = variante === 'blanco' ? '#FFFFFF' : VERDE;
   return (
-    <svg width={tamano} height={tamano} viewBox="0 0 64 64" role="img" aria-label="AlemiaHR" className={className}>
-      <defs>
-        <linearGradient id={`flecha-${variante}`} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor={variante === 'blanco' ? '#6EE7B7' : '#1E3A5A'} />
-          <stop offset="0.55" stopColor={VERDE} />
-          <stop offset="1" stopColor={VERDE} />
-        </linearGradient>
-      </defs>
-      {/* A */}
-      <path d="M3 58 L23 7 H34 L46 38 L38 44 L28.5 19 L14.5 58 Z" fill={letra} />
-      {/* Flecha de crecimiento */}
-      <path d="M8 55 C 20 44, 30 42, 40 34 C 46 29, 50 23, 53 17" fill="none" stroke={`url(#flecha-${variante})`} strokeWidth="6" strokeLinecap="round" />
-      <path d="M45 13 L61 5 L57 23 Z" fill={VERDE} />
-      {/* Insignia HR */}
-      <rect x="37" y="40" width="25" height="17" rx="5" fill={VERDE} />
-      <text x="49.5" y="52.6" textAnchor="middle" fontFamily="var(--font-montserrat), sans-serif" fontWeight="800" fontSize="11" fill="#FFFFFF">HR</text>
+    <svg height={alto} width={(alto * ANCHO) / ALTO} viewBox={`0 ${Y0} ${ANCHO} ${ALTO}`} role="img" aria-label="AlemiaHR" className={className}>
+      <path d="M 16 126 L 56 44 C 60 36, 70 36, 74 44 L 114 128 C 120 140, 132 140, 138 128 L 154 78 L 166 96 L 146 144 C 134 166, 110 166, 98 144 L 65 72 L 32 138 Z" fill={base} />
+      <path d="M 2 162 C 18 124, 46 112, 78 104 C 110 96, 134 76, 152 44 C 156 37, 165 37, 168 44 L 160 66 C 142 96, 116 114, 82 122 C 52 129, 32 140, 22 162 Z" fill={base} />
+      <path d="M 164 42 C 168 42, 172 45, 174 52 L 204 156 L 182 156 L 161 78 L 154 64 Z" fill={acento} />
+      <path d="M 110 134 C 134 102, 162 72, 192 44 L 176 34 L 234 20 L 214 78 L 202 62 C 172 90, 146 118, 124 146 C 118 144, 113 140, 110 134 Z" fill={acento} />
     </svg>
   );
 }
 
 interface PropsLogo { variante?: 'color' | 'blanco'; tamano?: 'sm' | 'md' | 'lg'; bajada?: boolean; className?: string }
 
-/** Logo horizontal: isotipo + "AlemiaHR" (+ "Performance Platform" opcional). */
+// Proporciones del logo oficial: texto 76px, insignia HR 64px de alto (≈0,84), isotipo ≈1,9 veces el texto
+const TAMANOS = {
+  sm: { texto: 20, iso: 34 },
+  md: { texto: 26, iso: 44 },
+  lg: { texto: 36, iso: 62 },
+};
+
+/** Logo horizontal oficial: isotipo + "Alemia" + insignia HR (+ "PERFORMANCE PLATFORM" opcional). */
 export function Logo({ variante = 'color', tamano = 'md', bajada = false, className = '' }: PropsLogo) {
-  const dims = { sm: { iso: 28, texto: 'text-lg' }, md: { iso: 36, texto: 'text-xl' }, lg: { iso: 56, texto: 'text-3xl' } }[tamano];
+  const t = TAMANOS[tamano];
   const blanco = variante === 'blanco';
+  const insignia = Math.round(t.texto * 0.84);
   return (
-    <span className={`inline-flex items-center gap-2.5 ${className}`}>
-      <Isotipo tamano={dims.iso} variante={variante} />
+    <span className={`inline-flex items-center gap-[0.55em] ${className}`} style={{ fontSize: t.texto }}>
+      <Isotipo alto={t.iso} variante={variante} />
       <span className="flex flex-col leading-none">
-        <span className={`font-titulo font-extrabold tracking-tight ${dims.texto} ${blanco ? 'text-white' : 'text-marca-900'}`}>
-          Alemia<span className={blanco ? 'text-acento-400' : 'text-acento-500'}>HR</span>
+        <span className="flex items-center gap-[0.22em]">
+          <span className={`font-marca font-bold tracking-[-0.02em] ${blanco ? 'text-white' : 'text-marca-900'}`}>Alemia</span>
+          <span
+            className={`font-marca font-extrabold inline-flex items-center justify-center rounded-[0.2em] px-[0.28em] ${blanco ? 'text-white border-2 border-white' : 'bg-acento-500 text-white'}`}
+            style={{ height: insignia, fontSize: t.texto * 0.58 }}
+          >
+            HR
+          </span>
         </span>
         {bajada && (
-          <span className={`font-titulo font-semibold uppercase tracking-[0.18em] text-[9px] mt-1 ${blanco ? 'text-marca-200' : 'text-marca-600'}`}>
+          <span className={`font-semibold uppercase tracking-[0.28em] mt-[0.35em] ${blanco ? 'text-white/85' : 'text-marca-900'}`} style={{ fontSize: Math.max(8, t.texto * 0.21) }}>
             Performance Platform
           </span>
         )}

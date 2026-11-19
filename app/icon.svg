@@ -1,13 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="f" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#1E3A5A"/><stop offset="0.55" stop-color="#10B981"/><stop offset="1" stop-color="#10B981"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="14" fill="#FFFFFF"/>
-  <path d="M3 58 L23 7 H34 L46 38 L38 44 L28.5 19 L14.5 58 Z" fill="#0F2942"/>
-  <path d="M8 55 C 20 44, 30 42, 40 34 C 46 29, 50 23, 53 17" fill="none" stroke="url(#f)" stroke-width="6" stroke-linecap="round"/>
-  <path d="M45 13 L61 5 L57 23 Z" fill="#10B981"/>
-  <rect x="37" y="40" width="25" height="17" rx="5" fill="#10B981"/>
-  <text x="49.5" y="52.6" text-anchor="middle" font-family="Montserrat, Arial, sans-serif" font-weight="800" font-size="11" fill="#FFFFFF">HR</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -27 240 240">
+  <rect x="-1" y="-27" width="240" height="240" rx="48" fill="#FFFFFF"/>
+  <path d="M 16 126 L 56 44 C 60 36, 70 36, 74 44 L 114 128 C 120 140, 132 140, 138 128 L 154 78 L 166 96 L 146 144 C 134 166, 110 166, 98 144 L 65 72 L 32 138 Z" fill="#0F2942"/>
+  <path d="M 2 162 C 18 124, 46 112, 78 104 C 110 96, 134 76, 152 44 C 156 37, 165 37, 168 44 L 160 66 C 142 96, 116 114, 82 122 C 52 129, 32 140, 22 162 Z" fill="#0F2942"/>
+  <path d="M 164 42 C 168 42, 172 45, 174 52 L 204 156 L 182 156 L 161 78 L 154 64 Z" fill="#10B981"/>
+  <path d="M 110 134 C 134 102, 162 72, 192 44 L 176 34 L 234 20 L 214 78 L 202 62 C 172 90, 146 118, 124 146 C 118 144, 113 140, 110 134 Z" fill="#10B981"/>
 </svg>
