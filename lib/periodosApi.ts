@@ -24,3 +24,7 @@ export const calificarKpi = (indicador_id: number, periodo: string, resultado: n
 
 export const cerrarPeriodo = (periodo: string) => llamar<RespuestaCierre>('/api/periodos', { accion: 'cerrar', periodo });
 export const reabrirPeriodo = (periodo: string, motivo: string) => llamar<{ ok: true }>('/api/periodos', { accion: 'reabrir', periodo, motivo });
+
+/** Pesos de todos los KPIs de una persona: { [indicadorId]: peso | null } (todos null = pesan igual) */
+export const guardarPesosKpi = (empleado_id: number, pesos: Record<number, number | null>) =>
+  llamar<{ cumplimiento_general: number; cumplimiento_periodo: number | null }>('/api/pesos', { empleado_id, pesos });

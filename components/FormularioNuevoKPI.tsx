@@ -1,7 +1,9 @@
 'use client'
 import { useState } from 'react'
 
-export function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (eid: number, data: any) => void }) {
+import type { OpcionKr } from '@/lib/okr'
+
+export function FormularioNuevoKPI({ empId, onAdd, opcionesKr = [] }: { empId: number, onAdd: (eid: number, data: any) => void, opcionesKr?: OpcionKr[] }) {
   const [abierto, setAbierto] = useState(false);
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
@@ -9,6 +11,7 @@ export function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (ei
   const [meta, setMeta] = useState('');
   const [direccion, setDireccion] = useState<'creciente' | 'decreciente'>('creciente');
   const [periodo, setPeriodo] = useState<'mensual' | 'trimestral' | 'semestral' | 'anual'>('trimestral'); // <-- Estado nuevo
+  const [krId, setKrId] = useState<string>(''); // resultado clave (OKR del área) al que aporta; '' = operativo
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,10 +23,11 @@ export function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (ei
       unidad_medida: unidad,
       meta_esperada: parseFloat(meta) || 0,
       direccion,
-      periodo // <-- Enviado al guardado
+      periodo, // <-- Enviado al guardado
+      kr_id: krId ? Number(krId) : null,
     });
     
-    setTitulo(''); setDescripcion(''); setMeta(''); setAbierto(false);
+    setTitulo(''); setDescripcion(''); setMeta(''); setKrId(''); setAbierto(false);
   };
 
   if (!abierto) {
@@ -68,6 +72,15 @@ export function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (ei
           <option value="Días">Días</option>
         </select>
         <input type="number" placeholder="Meta" className="flex-1 text-xs p-2 rounded outline-none border border-slate-200 bg-white" value={meta} onChange={e => setMeta(e.target.value)} required />
+      </div>
+
+      <div>
+        <label className="text-[10px] font-bold text-slate-500 block mb-1 uppercase">🎯 Aporta al resultado clave</label>
+        <select className="w-full text-xs p-2 rounded outline-none border border-slate-200 bg-white text-slate-700" value={krId} onChange={e => setKrId(e.target.value)}>
+          <option value="">Operativo (no aporta a un OKR)</option>
+          {opcionesKr.map(o => <option key={o.id} value={o.id}>{o.etiqueta}</option>)}
+        </select>
+        {opcionesKr.length === 0 && <p className="text-[9px] text-slate-400 mt-1">Su área aún no tiene OKR este año: el líder los crea en 🎯 Objetivos.</p>}
       </div>
 
       <div className="flex gap-2 pt-1">

@@ -5,6 +5,7 @@ import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { ETIQUETA_ESTADO_ACCESO } from '@/lib/accesos'
 import { FormularioNuevoKPI } from './FormularioNuevoKPI'
 import { KpisDelPeriodo } from './periodos/KpisDelPeriodo'
+import { opcionesKrDe } from '@/lib/okr'
 import { ModalEvaluacionPotencial } from './ModalEvaluacionPotencial'
 import { useUmbrales, coloresDesempeno } from '@/lib/umbrales'
 import { logrosDe } from '@/lib/motivacion'
@@ -235,6 +236,10 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
                   calificar={funciones.calificarKpi}
                   eliminar={funciones.eliminarIndicador}
                   guardarFeedback={funciones.guardarFeedbackKPI}
+                  opcionesKr={opcionesKrDe(emp.area_id, funciones.okr)}
+                  vincular={funciones.vincularKpi}
+                  hayOkr={!!funciones.okr}
+                  guardarPesos={funciones.guardarPesos}
                 />
               ) : (
                 <p className="text-xs text-slate-400 italic">Cargando períodos…</p>
@@ -242,7 +247,7 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
             </div>
 
             {allowEdit && (
-              <FormularioNuevoKPI empId={emp.id} onAdd={agregarIndicador} />
+              <FormularioNuevoKPI empId={emp.id} onAdd={agregarIndicador} opcionesKr={opcionesKrDe(emp.area_id, funciones.okr)} />
             )}
           </div>
 

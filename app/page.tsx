@@ -32,8 +32,11 @@ import { TarjetaEmpleado } from '@/components/TarjetaEmpleado'
 import { PanelBI } from '@/components/bi/PanelBI'
 import { AsistenteImportacion } from '@/components/importacion/AsistenteImportacion'
 import { AsistenteCierre } from '@/components/periodos/AsistenteCierre'
+import { VistaOKR } from '@/components/okr/VistaOKR'
+import { cargarOKR } from '@/lib/okrApi'
+import type { ObjetivoOKR, ResultadoClave } from '@/lib/okr'
 import { AvisosPeriodo, ChipPeriodo } from '@/components/periodos/AvisosPeriodo'
-import { calificarKpi as calificarKpiApi } from '@/lib/periodosApi'
+import { calificarKpi as calificarKpiApi, guardarPesosKpi } from '@/lib/periodosApi'
 import { ProveedorUmbrales } from '@/lib/umbrales'
 import { CONFIG_BI_DEFECTO, type UmbralesDesempeno } from '@/lib/bi'
 import { ModalPerfilColaborador } from '@/components/ModalPerfilColaborador'
@@ -59,6 +62,8 @@ export default function DashboardPerformance() {
   const [modalCorteAbierto, setModalCorteAbierto] = useState(false);
   const [empleadoViendoPerfil, setEmpleadoViendoPerfil] = useState<Empleado | null>(null);
   // Períodos (mes 'AAAA-MM'): meses cerrados y días para calificar tras el fin de mes
+  // OKR del año en curso (para vincular KPIs a resultados clave de su área)
+  const [okrAnio, setOkrAnio] = useState<{ objetivos: ObjetivoOKR[]; krs: ResultadoClave[] } | null>(null);
   const [infoPeriodos, setInfoPeriodos] = useState<InfoPeriodos>({ cerrados: [], diasLimite: 5, disponible: false });
 
   
@@ -68,7 +73,7 @@ export default function DashboardPerformance() {
   const [directorio, setDirectorio] = useState<EntradaDirectorio[]>([])
   // Umbrales de desempeño de la empresa (configurables en el BI); los usan todas las pantallas
   const [umbrales, setUmbrales] = useState<UmbralesDesempeno>(CONFIG_BI_DEFECTO)
-  const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_perfil' | 'evaluaciones'>('tablero')
+  const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_perfil' | 'evaluaciones' | 'okr'>('tablero')
 
   const [nuevaAreaNombre, setNuevaAreaNombre] = useState(''); const [nuevaAreaPadre, setNuevaAreaPadre] = useState<string>("");
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
@@ -154,6 +159,11 @@ const toggleArea = (id: number) => {
     if (datos.monedaPreferida) setMonedaPreferida(datos.monedaPreferida)
     if (datos.umbrales) setUmbrales(datos.umbrales)
     if (datos.periodos) setInfoPeriodos(datos.periodos)
+    // OKR del año para el vínculo de KPIs (si falla, p. ej. sin migración, los KPIs siguen funcionando)
+    const ahora = new Date();
+    cargarOKR(ahora.getFullYear(), Math.floor(ahora.getMonth() / 3) + 1)
+      .then(r => setOkrAnio({ objetivos: r.objetivos, krs: r.krs }))
+      .catch(() => setOkrAnio(null))
 
     // Toda la plataforma (tableros, BI, organigrama, invitaciones) trabaja solo con activos;
     // los desvinculados (solo los recibe el Admin) se guardan aparte para el histórico.
@@ -564,6 +574,7 @@ const toggleArea = (id: number) => {
     unidad_medida: datosKpi.unidad_medida,
     meta_esperada: datosKpi.meta_esperada,
     direccion: datosKpi.direccion || 'creciente',
+    kr_id: datosKpi.kr_id ?? null,
     periodo: datosKpi.periodo || 'trimestral', // <-- Guardado de periodo
     progreso: 0,
     resultado_actual: 0
@@ -592,6 +603,19 @@ const toggleArea = (id: number) => {
       alert(mensajeDeError(e));
       return false;
     }
+  }
+
+  // Pesos de los KPIs de una persona (el servidor valida que sumen 100 y recalcula su cumplimiento)
+  async function guardarPesos(eid: number, pesos: Record<number, number | null>): Promise<boolean> {
+    try { await guardarPesosKpi(eid, pesos); await cargarDatos(); return true; }
+    catch (e) { alert(mensajeDeError(e)); return false; }
+  }
+
+  // Vincula un KPI a un resultado clave de su área (null = KPI operativo)
+  async function vincularKpi(kpiId: number, krId: number | null) {
+    const { error } = await supabase.from('indicadores').update({ kr_id: krId }).eq('id', kpiId);
+    if (error) alert(/kr_id/.test(error.message) ? 'Falta aplicar la migración 20261123_okr.sql en Supabase.' : 'No se pudo vincular: ' + error.message);
+    recargarDatos();
   }
 
   async function guardarEvaluacionPotencial(eid: number, puntajeFinal: number, nivel: 1 | 2 | 3, justificacion: string, dimensiones: any) {
@@ -775,7 +799,7 @@ const toggleArea = (id: number) => {
 
   // Objeto de funciones tipado que se pasa a TarjetaEmpleado
   const funcionesTarjeta: FuncionesTarjeta = {
-    asignarAreaEmpleado, calificarKpi, periodos: infoPeriodos, esAdmin, agregarIndicador, crearPlan, completarPlan,
+    asignarAreaEmpleado, calificarKpi, periodos: infoPeriodos, esAdmin, okr: okrAnio ?? undefined, vincularKpi, guardarPesos, agregarIndicador, crearPlan, completarPlan,
     setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
     diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
     eliminarIndicador, actualizarDescripcionPuesto,
@@ -824,6 +848,7 @@ const toggleArea = (id: number) => {
             <p className="px-3 text-[10px] font-bold uppercase text-marca-300 tracking-wider mb-2">Talento</p>
             <div className="space-y-1">
               <BotonLateral icono="📋" texto="Desempeño (BI)" activo={vista === 'informes'} onClick={() => setVista('informes')} visible={puedeVerTablero} />
+              <BotonLateral icono="🎯" texto="Objetivos (OKR)" activo={vista === 'okr'} onClick={() => setVista('okr')} visible={true} />
               <BotonLateral icono="⭐" texto="Evaluaciones 360" activo={vista === 'evaluaciones'} onClick={() => setVista('evaluaciones')} visible={true} />
             </div>
           </div>
@@ -1207,6 +1232,8 @@ const toggleArea = (id: number) => {
             )}
 
             {/* --- CONTENIDO: EVALUACIONES 360 --- */}
+            {vista === 'okr' && <VistaOKR areas={areas} directorio={directorio} onCambio={recargarDatos} />}
+
             {vista === 'evaluaciones' && ((esAdmin || esAuditor) ? (
               <ReporteEvaluaciones titulo="📋 Reporte Global de Evaluaciones 360" evaluaciones={evaluaciones} nombrePorId={nombrePorId} />
             ) : (

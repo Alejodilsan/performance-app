@@ -33,6 +33,10 @@ export interface Indicador {
   periodo?: 'mensual' | 'trimestral' | 'semestral' | 'anual';
   feedback_lider?: string; 
   fecha_feedback?: string;
+  /** Resultado clave (OKR de su área) al que aporta; null = KPI operativo */
+  kr_id?: number | null;
+  /** Peso en el cumplimiento de la persona (null = todos pesan igual) */
+  peso?: number | null;
 }
 export interface DimensionPotencial {
   id: string;
@@ -150,6 +154,10 @@ export interface FuncionesTarjeta {
   /** Períodos de la empresa y si quien mira es Admin (puede calificar meses con la fecha límite vencida) */
   periodos?: import('./datos').InfoPeriodos;
   esAdmin?: boolean;
+  /** OKR del año (para vincular KPIs a un resultado clave de su área) */
+  okr?: { objetivos: import('./okr').ObjetivoOKR[]; krs: import('./okr').ResultadoClave[] };
+  vincularKpi?: (kpiId: number, krId: number | null) => Promise<void>;
+  guardarPesos?: (eid: number, pesos: Record<number, number | null>) => Promise<boolean>;
   actualizarPotencial?: (eid: number, val: number) => Promise<void>;
   agregarIndicador: (eid: number, datosKpi: any) => Promise<void>;
   eliminarIndicador: (id: number) => Promise<void>;

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { errorJson } from '@/lib/servidor/supabaseAdmin'
 import { obtenerContextoSesion } from '@/lib/servidor/contexto'
 import { leerConfiguracion } from '@/lib/servidor/configuracion'
-import { calcularProgreso, esClaveMes, etiquetaMes, puedeCalificar } from '@/lib/periodos'
+import { calcularProgreso, esClaveMes, puedeCalificar } from '@/lib/periodos'
+import { recalcularCumplimiento, refrescarKpiVigente } from '@/lib/servidor/cumplimiento'
 import type { Indicador } from '@/lib/tipos'
 import type { RespuestaResultado } from '@/lib/periodosApi'
 import { mensajeDeError } from '@/lib/errores'
@@ -58,7 +58,8 @@ export async function POST(request: Request) {
       if (error) throw error;
     }
 
-    const cumplimiento = await recalcularColaborador(admin, emp.id, indicadorId, empresaId, emp.potencial_score ?? null, periodo);
+    await refrescarKpiVigente(admin, indicadorId);
+    const cumplimiento = await recalcularCumplimiento(admin, emp.id, empresaId, emp.potencial_score ?? null, periodo);
     const respuesta: RespuestaResultado = { progreso, ...cumplimiento };
     return NextResponse.json(respuesta);
   } catch (error) {
@@ -67,33 +68,4 @@ export async function POST(request: Request) {
     console.error('Error en /api/resultados:', error);
     return errorJson(`No se pudo guardar el resultado: ${m}`, 500);
   }
-}
-
-/**
- * El valor vigente del KPI es su resultado más reciente; el cumplimiento del colaborador (denormalizado en
- * empleados) es el promedio del progreso vigente de sus KPIs. Además se registra el avance del mes
- * (historico_cumplimiento con oficial = false; si el mes tiene cierre oficial, la BD lo conserva).
- */
-async function recalcularColaborador(admin: SupabaseClient, empleadoId: number, indicadorId: number, empresaId: number, potencial: number | null, periodo: string) {
-  const { data: ultimo } = await admin.from('resultados_kpi').select('resultado, progreso')
-    .eq('indicador_id', indicadorId).order('periodo', { ascending: false }).limit(1).maybeSingle();
-  await admin.from('indicadores').update({ resultado_actual: ultimo ? Number(ultimo.resultado) : 0, progreso: ultimo ? Number(ultimo.progreso) : 0 }).eq('id', indicadorId);
-
-  const [{ data: kpis }, { data: delMes }] = await Promise.all([
-    admin.from('indicadores').select('progreso').eq('empleado_id', empleadoId),
-    admin.from('resultados_kpi').select('progreso').eq('empleado_id', empleadoId).eq('periodo', periodo),
-  ]);
-  const lista = kpis || [];
-  const cumplimientoGeneral = lista.length ? Math.round(lista.reduce((s, k) => s + Number(k.progreso || 0), 0) / lista.length) : 0;
-  await admin.from('empleados').update({ cumplimiento_general: cumplimientoGeneral }).eq('id', empleadoId);
-
-  const mes = delMes || [];
-  const cumplimientoPeriodo = mes.length ? Math.round(mes.reduce((s, r) => s + Number(r.progreso), 0) / mes.length) : null;
-  if (cumplimientoPeriodo !== null) {
-    await admin.from('historico_cumplimiento').upsert({
-      empleado_id: empleadoId, empresa_id: empresaId, periodo: etiquetaMes(periodo), cumplimiento: cumplimientoPeriodo,
-      potencial_score: potencial, total_kpis: lista.length, fecha_corte: new Date().toISOString(),
-    }, { onConflict: 'empleado_id,periodo' });
-  }
-  return { cumplimiento_general: cumplimientoGeneral, cumplimiento_periodo: cumplimientoPeriodo };
 }

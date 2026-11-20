@@ -160,8 +160,10 @@ export interface ResumenPeriodo {
 export function resumenPeriodo(emp: Pick<Empleado, 'indicadores'>, clave: string): ResumenPeriodo {
   const kpis = kpisEnPeriodo(emp, clave);
   const con = kpis.filter(k => k.resultado);
+  const pesos = pesosEfectivos((emp.indicadores || []) as Pick<Indicador, 'id' | 'peso'>[]);
   return {
-    cumplimiento: con.length ? Math.round(con.reduce((s, k) => s + Number(k.resultado!.progreso), 0) / con.length) : null,
+    // Promedio ponderado por el peso de cada KPI, solo entre los calificados en el mes
+    cumplimiento: promedioPonderado(con.map(k => ({ progreso: Number(k.resultado!.progreso), peso: pesos.get(k.kpi.id) ?? 0 }))),
     calificados: con.length,
     pendientes: kpis.filter(k => !k.resultado),
     seEvaluan: kpis.filter(k => k.ventana.seEvalua),
@@ -172,4 +174,40 @@ export function resumenPeriodo(emp: Pick<Empleado, 'indicadores'>, clave: string
 /** Frecuencias cuya ventana se evalúa este mes (para avisar: "este mes se evalúan los trimestrales"). */
 export function ventanasQueCierran(clave: string): Frecuencia[] {
   return (['trimestral', 'semestral', 'anual'] as Frecuencia[]).filter(f => ventanaKpi(f, clave).seEvalua);
+}
+
+// ------------------------------------------------------------------
+// Pesos de los KPIs en el cumplimiento de la persona
+// ------------------------------------------------------------------
+
+/**
+ * Peso efectivo (0–100) de cada KPI. Sin pesos definidos, todos pesan igual. Si solo algunos tienen peso,
+ * el resto se reparte en partes iguales lo que falta para 100.
+ */
+export function pesosEfectivos(kpis: Pick<Indicador, 'id' | 'peso'>[]): Map<number, number> {
+  const definidos = kpis.filter(k => k.peso != null && Number(k.peso) > 0);
+  const m = new Map<number, number>();
+  if (definidos.length === 0) { kpis.forEach(k => m.set(k.id, kpis.length ? 100 / kpis.length : 0)); return m; }
+  const suma = definidos.reduce((s, k) => s + Number(k.peso), 0);
+  const sinPeso = kpis.filter(k => !(k.peso != null && Number(k.peso) > 0));
+  const resto = sinPeso.length ? Math.max(0, 100 - suma) / sinPeso.length : 0;
+  kpis.forEach(k => m.set(k.id, k.peso != null && Number(k.peso) > 0 ? Number(k.peso) : resto));
+  return m;
+}
+
+/** Promedio ponderado de progresos (0–100). null si no hay elementos o todos pesan 0. */
+export function promedioPonderado(items: { progreso: number; peso: number }[]): number | null {
+  const total = items.reduce((s, i) => s + i.peso, 0);
+  if (items.length === 0) return null;
+  if (total <= 0) return Math.round(items.reduce((s, i) => s + i.progreso, 0) / items.length);
+  return Math.round(items.reduce((s, i) => s + i.progreso * i.peso, 0) / total);
+}
+
+/** Pesos que define un líder para todos los KPIs de una persona: todos vacíos (iguales) o todos > 0 sumando 100. */
+export function validarPesos(pesos: (number | null)[]): string | null {
+  if (pesos.every(p => p === null)) return null;
+  if (pesos.some(p => p === null || !Number.isFinite(p) || p <= 0 || p > 100)) return 'Cada KPI necesita un peso entre 1 y 100 (o deja todos vacíos para que pesen igual).';
+  const suma = pesos.reduce((s: number, p) => s + (p as number), 0);
+  if (Math.abs(suma - 100) > 0.5) return `Los pesos deben sumar 100% (suman ${Math.round(suma * 10) / 10}%).`;
+  return null;
 }
