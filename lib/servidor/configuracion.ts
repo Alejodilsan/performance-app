@@ -14,6 +14,8 @@ export async function leerConfiguracion(admin: SupabaseClient, empresaId: number
       horas_mes: Number(data.horas_mes) || CONFIG_BI_DEFECTO.horas_mes,
       umbral_desempeno_bajo: Number(data.umbral_desempeno_bajo) || CONFIG_BI_DEFECTO.umbral_desempeno_bajo,
       umbral_desempeno_alto: Number(data.umbral_desempeno_alto) || CONFIG_BI_DEFECTO.umbral_desempeno_alto,
+      // Columna de la migración 20261121 (0 es válido: se califica hasta el último día del mes)
+      dias_limite_calificacion: data.dias_limite_calificacion == null ? CONFIG_BI_DEFECTO.dias_limite_calificacion : Number(data.dias_limite_calificacion),
     },
   };
 }

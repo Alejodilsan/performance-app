@@ -13,6 +13,8 @@ export interface ConfiguracionBI {
   horas_mes: number;
   umbral_desempeno_bajo: number;
   umbral_desempeno_alto: number;
+  /** Días después del fin de mes en que los líderes aún pueden calificar ese mes */
+  dias_limite_calificacion: number;
 }
 
 /** Valores por defecto: Colombia (COP, factor prestacional 1,52, 182 h/mes = 42 h/semana). */
@@ -22,6 +24,7 @@ export const CONFIG_BI_DEFECTO: ConfiguracionBI = {
   horas_mes: 182,
   umbral_desempeno_bajo: 60,
   umbral_desempeno_alto: 85,
+  dias_limite_calificacion: 5,
 };
 
 export function validarConfiguracion(c: ConfiguracionBI): string | null {
@@ -30,6 +33,7 @@ export function validarConfiguracion(c: ConfiguracionBI): string | null {
   if (!(c.horas_mes > 0 && c.horas_mes <= 400)) return 'Las horas al mes deben estar entre 1 y 400.';
   if (!(c.umbral_desempeno_bajo >= 1 && c.umbral_desempeno_alto <= 100)) return 'Los umbrales deben estar entre 1 y 100.';
   if (c.umbral_desempeno_bajo >= c.umbral_desempeno_alto) return 'El umbral bajo debe ser menor que el alto.';
+  if (!(Number.isInteger(c.dias_limite_calificacion) && c.dias_limite_calificacion >= 0 && c.dias_limite_calificacion <= 28)) return 'Los días para calificar deben estar entre 0 y 28.';
   return null;
 }
 

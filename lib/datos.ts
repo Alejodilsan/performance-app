@@ -22,9 +22,13 @@ export type RespuestaDatos =
       directorio: EntradaDirectorio[];
       monedaPreferida: string | null;
       /** Umbrales de desempeño de la empresa (configurables en el BI) */
-      umbrales: UmbralesDesempeno }
+      umbrales: UmbralesDesempeno;
+      /** Períodos (mes 'AAAA-MM'): cerrados, días límite para calificar y si la migración 20261121 está aplicada */
+      periodos: InfoPeriodos }
   | { estado: 'desvinculado' }
   | { estado: 'sin_perfil' };
+
+export interface InfoPeriodos { cerrados: string[]; diasLimite: number; disponible: boolean }
 
 export async function cargarDatosSesion(): Promise<RespuestaDatos> {
   const { data: { session } } = await supabase.auth.getSession();

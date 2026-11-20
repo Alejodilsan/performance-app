@@ -175,6 +175,7 @@ export async function POST(request: Request) {
       horas_mes: Number(c.horas_mes),
       umbral_desempeno_bajo: Math.round(Number(c.umbral_desempeno_bajo)),
       umbral_desempeno_alto: Math.round(Number(c.umbral_desempeno_alto)),
+      dias_limite_calificacion: Math.round(Number(c.dias_limite_calificacion ?? 5)),
     };
     const invalida = validarConfiguracion(config);
     if (invalida) return errorJson(invalida, 400);
@@ -182,7 +183,8 @@ export async function POST(request: Request) {
       .upsert({ empresa_id: auth.perfil.empresa_id, ...config, updated_at: new Date().toISOString() });
     if (error) {
       const falta = /configuracion_empresa/.test(error.message);
-      return errorJson(falta ? 'Falta aplicar la migración 20261117_configuracion_bi.sql en Supabase.' : error.message, 500);
+      const faltaPeriodos = /dias_limite_calificacion/.test(error.message);
+      return errorJson(faltaPeriodos ? 'Falta aplicar la migración 20261121_periodos.sql en Supabase.' : falta ? 'Falta aplicar la migración 20261117_configuracion_bi.sql en Supabase.' : error.message, 500);
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

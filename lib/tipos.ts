@@ -53,6 +53,8 @@ export interface HistoricoCumplimiento {
   potencial_score?: number;
   total_kpis?: number;
   fecha_corte: string;
+  /** true = cierre oficial ("Cerrar Periodo", inmutable); false = avance automático del mes al calificar KPIs */
+  oficial?: boolean;
 }
 export interface Empleado { 
   id: number; 
@@ -143,7 +145,11 @@ export interface Perfil {
 
 export interface FuncionesTarjeta {
   asignarAreaEmpleado: (eid: number, aid: string) => Promise<void>;
-  actualizarIndicador: (id: number, val: number, eid: number) => Promise<void>;
+  /** Califica (valor) o borra (null) el resultado del KPI en el mes 'AAAA-MM'. true si se guardó. */
+  calificarKpi?: (indicadorId: number, eid: number, periodo: string, valor: number | null) => Promise<boolean>;
+  /** Períodos de la empresa y si quien mira es Admin (puede calificar meses con la fecha límite vencida) */
+  periodos?: import('./datos').InfoPeriodos;
+  esAdmin?: boolean;
   actualizarPotencial?: (eid: number, val: number) => Promise<void>;
   agregarIndicador: (eid: number, datosKpi: any) => Promise<void>;
   eliminarIndicador: (id: number) => Promise<void>;

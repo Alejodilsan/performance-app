@@ -15,7 +15,7 @@ import { ModalDesvincularColaborador } from '@/components/ModalDesvincularColabo
 import { SeccionDesvinculados } from '@/components/SeccionDesvinculados'
 import { ArbolAreas } from '@/components/ArbolAreas'
 import { ModalAccesos } from '@/components/ModalAccesos'
-import { cargarDatosSesion, type RespuestaDatos, type EntradaDirectorio } from '@/lib/datos'
+import { cargarDatosSesion, type RespuestaDatos, type EntradaDirectorio, type InfoPeriodos } from '@/lib/datos'
 import type { Alcance } from '@/lib/alcance'
 import { ReporteEvaluaciones } from '@/components/ReporteEvaluaciones'
 import { HistorialEmpleado } from '@/components/HistorialEmpleado'
@@ -31,6 +31,9 @@ import { TarjetaSaludArea } from '@/components/TarjetaSaludArea'
 import { TarjetaEmpleado } from '@/components/TarjetaEmpleado'
 import { PanelBI } from '@/components/bi/PanelBI'
 import { AsistenteImportacion } from '@/components/importacion/AsistenteImportacion'
+import { AsistenteCierre } from '@/components/periodos/AsistenteCierre'
+import { AvisosPeriodo, ChipPeriodo } from '@/components/periodos/AvisosPeriodo'
+import { calificarKpi as calificarKpiApi } from '@/lib/periodosApi'
 import { ProveedorUmbrales } from '@/lib/umbrales'
 import { CONFIG_BI_DEFECTO, type UmbralesDesempeno } from '@/lib/bi'
 import { ModalPerfilColaborador } from '@/components/ModalPerfilColaborador'
@@ -54,34 +57,10 @@ export default function DashboardPerformance() {
   const [modalInvitarAbierto, setModalInvitarAbierto] = useState(false);
   // Estados para el Modal de Corte Oficial
   const [modalCorteAbierto, setModalCorteAbierto] = useState(false);
-  const MESES_ANIO = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-  ];
-  const ANIOS_DISPONIBLES = [2025, 2026, 2027, 2028];
-
-  const [mesCorte, setMesCorte] = useState<string>(MESES_ANIO[new Date().getMonth()]);
-  const [anioCorte, setAnioCorte] = useState<number>(new Date().getFullYear());
   const [empleadoViendoPerfil, setEmpleadoViendoPerfil] = useState<Empleado | null>(null);
-  const [fechaCortePeriodo, setFechaCortePeriodo] = useState(new Date().toISOString().split('T')[0]);
-  const [ejecutandoCorte, setEjecutandoCorte] = useState(false);
+  // Períodos (mes 'AAAA-MM'): meses cerrados y días para calificar tras el fin de mes
+  const [infoPeriodos, setInfoPeriodos] = useState<InfoPeriodos>({ cerrados: [], diasLimite: 5, disponible: false });
 
-  const periodosBloqueados = useMemo(() => {
-    const mapa = new Map<string, { periodo: string; fecha: string; total: number }>();
-    empleados.forEach(emp => {
-      (emp.historico || []).forEach(h => {
-        const actual = mapa.get(h.periodo);
-        if (actual) {
-          actual.total += 1;
-        } else {
-          mapa.set(h.periodo, { periodo: h.periodo, fecha: h.fecha_corte, total: 1 });
-        }
-      });
-    });
-    return Array.from(mapa.values()).sort(
-      (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
-    );
-  }, [empleados]);
   
 
   // Alcance de visibilidad (lib/alcance.ts) y directorio mínimo para el organigrama informativo
@@ -174,6 +153,7 @@ const toggleArea = (id: number) => {
     setAlcance(datos.alcance)
     if (datos.monedaPreferida) setMonedaPreferida(datos.monedaPreferida)
     if (datos.umbrales) setUmbrales(datos.umbrales)
+    if (datos.periodos) setInfoPeriodos(datos.periodos)
 
     // Toda la plataforma (tableros, BI, organigrama, invitaciones) trabaja solo con activos;
     // los desvinculados (solo los recibe el Admin) se guardan aparte para el histórico.
@@ -192,72 +172,6 @@ const toggleArea = (id: number) => {
 
   const recargarDatos = () => { cargarDatos() }
 
-// 1. Guarda/actualiza automáticamente el punto del mes actual al calificar KPIs
-  async function registrarSnapshotMensual(eid: number, cumplimiento: number, potencial: number, totalKpis: number) {
-    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    const ahora = new Date();
-    const periodoActual = `${meses[ahora.getMonth()]} ${ahora.getFullYear()}`;
-
-    await supabase.from('historico_cumplimiento').upsert(
-      {
-        empleado_id: eid,
-        empresa_id: perfil?.empresa_id,
-        periodo: periodoActual,
-        cumplimiento,
-        potencial_score: potencial,
-        total_kpis: totalKpis,
-        fecha_corte: ahora.toISOString(),
-      },
-      { onConflict: 'empleado_id, periodo' }
-    );
-  }
-
-  // 2. Formaliza un corte oficial masivo para toda la organización (Botón Admin)
-  async function ejecutarCorteOficial() {
-    const etiqueta = `${mesCorte} ${anioCorte}`;
-    if (!mesCorte || !anioCorte || !fechaCortePeriodo) {
-      alert("Debes seleccionar el mes, el año y la fecha de bloqueo.");
-      return;
-    }
-
-    const yaBloqueado = periodosBloqueados.some(
-      p => p.periodo.toLowerCase() === etiqueta.toLowerCase()
-    );
-    if (yaBloqueado) {
-      alert(`🔒 El periodo "${etiqueta}" ya se encuentra bloqueado.`);
-      return;
-    }
-
-    const confirmar = window.confirm(
-      `¿Deseas bloquear el periodo "${etiqueta}" con fecha ${fechaCortePeriodo} para ${empleados.length} colaboradores?`
-    );
-    if (!confirmar) return;
-
-    setEjecutandoCorte(true);
-    const fechaISO = new Date(`${fechaCortePeriodo}T12:00:00`).toISOString();
-
-    const snapshots = empleados.map(emp => ({
-      empleado_id: emp.id,
-      empresa_id: perfil?.empresa_id,
-      periodo: etiqueta,
-      cumplimiento: emp.cumplimiento_general || 0,
-      potencial_score: emp.potencial_score || 1,
-      total_kpis: emp.indicadores?.length || 0,
-      fecha_corte: fechaISO
-    }));
-
-    const { error } = await supabase
-      .from('historico_cumplimiento')
-      .upsert(snapshots, { onConflict: 'empleado_id, periodo' });
-
-    setEjecutandoCorte(false);
-    if (error) {
-      alert("Error al bloquear el periodo: " + error.message);
-    } else {
-      alert(`🔒 Periodo "${etiqueta}" bloqueado con fecha ${fechaCortePeriodo}.`);
-      recargarDatos();
-    }
-  }
 
 
   async function crearArea() {
@@ -645,66 +559,16 @@ const toggleArea = (id: number) => {
     else { alert("Indicador eliminado."); recargarDatos(); }
   }
 
-  async function actualizarIndicador(id: number, val: number, eid: number) {
-    const targetList = empleados;
-    const setter = setEmpleados;
-    let nuevoPromedioCalculado = 0;
-
-    const updatedList = targetList.map(emp => {
-      if (emp.id === eid) {
-        const nuevosIndicadoresEmp = emp.indicadores?.map((i: any) => {
-          if (i.id === id) {
-            const metaReal = i.meta_esperada && i.meta_esperada > 0 ? i.meta_esperada : 1;
-            let porcentajeCalculado = 0;
-
-            if (i.direccion === 'decreciente') {
-              // LÓGICA INVERSA (Menos es mejor)
-              if (val <= 0) {
-                porcentajeCalculado = 0; 
-              } else if (val <= metaReal) {
-                porcentajeCalculado = 100; // Si demora menos que la meta = 100% éxito
-              } else {
-                porcentajeCalculado = Math.round((metaReal / val) * 100); // Pierde puntos al pasarse
-              }
-            } else {
-              // LÓGICA DIRECTA (Más es mejor)
-              porcentajeCalculado = Math.round((val / metaReal) * 100);
-            }
-
-            if (porcentajeCalculado > 100) porcentajeCalculado = 100;
-            if (porcentajeCalculado < 0) porcentajeCalculado = 0;
-
-            return { ...i, resultado_actual: val, progreso: porcentajeCalculado };
-          }
-          return i;
-        }) || [];
-
-        const suma = nuevosIndicadoresEmp.reduce((acc: any, curr: any) => acc + curr.progreso, 0);
-        const nuevoPromedio = nuevosIndicadoresEmp.length > 0 ? Math.round(suma / nuevosIndicadoresEmp.length) : 0;
-        nuevoPromedioCalculado = nuevoPromedio;
-        
-        return { ...emp, indicadores: nuevosIndicadoresEmp, cumplimiento_general: nuevoPromedio };
-      }
-      return emp;
-    });
-
-    setter(updatedList);
-
-    const kpiActualizado = updatedList.find(e => e.id === eid)?.indicadores?.find(i => i.id === id);
-    const progresoGuardar = kpiActualizado ? kpiActualizado.progreso : 0;
-
-    await supabase.from('indicadores').update({ resultado_actual: val, progreso: progresoGuardar }).eq('id', id);
-    await supabase.from('empleados').update({ cumplimiento_general: nuevoPromedioCalculado }).eq('id', eid);
-
-    // --- NUEVO: Actualiza el punto histórico del mes actual en tiempo real ---
-    const empActualizado = updatedList.find(e => e.id === eid);
-    if (empActualizado) {
-      await registrarSnapshotMensual(
-        eid,
-        nuevoPromedioCalculado,
-        empActualizado.potencial_score || 1,
-        empActualizado.indicadores?.length || 0
-      );
+  // Califica (o borra) el resultado de un KPI en un mes. El servidor valida permisos, fecha límite y cierre,
+  // calcula el progreso y actualiza el cumplimiento del colaborador.
+  async function calificarKpi(indicadorId: number, _eid: number, periodo: string, valor: number | null): Promise<boolean> {
+    try {
+      await calificarKpiApi(indicadorId, periodo, valor);
+      await cargarDatos();
+      return true;
+    } catch (e) {
+      alert(mensajeDeError(e));
+      return false;
     }
   }
 
@@ -889,7 +753,7 @@ const toggleArea = (id: number) => {
 
   // Objeto de funciones tipado que se pasa a TarjetaEmpleado
   const funcionesTarjeta: FuncionesTarjeta = {
-    asignarAreaEmpleado, actualizarIndicador, agregarIndicador, crearPlan, completarPlan,
+    asignarAreaEmpleado, calificarKpi, periodos: infoPeriodos, esAdmin, agregarIndicador, crearPlan, completarPlan,
     setExpandidoId, expandidoId, nuevosIndicadores, setNuevosIndicadores, textosPlanes, setTextosPlanes,
     diasPlanes, setDiasPlanes, calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario, nuevosComentarios, setNuevosComentarios,
     eliminarIndicador, actualizarDescripcionPuesto,
@@ -978,6 +842,8 @@ const toggleArea = (id: number) => {
                 )}
               </div>
             )}
+            <ChipPeriodo cerrados={infoPeriodos.cerrados} diasLimite={infoPeriodos.diasLimite} esAdmin={esAdmin}
+              onCerrar={esAdmin && infoPeriodos.disponible ? () => setModalCorteAbierto(true) : undefined} />
             {esAuditor && (
               <span className="text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200 px-3 py-1 rounded-full">
                 👁️ Modo Auditoría (Solo Lectura)
@@ -992,14 +858,6 @@ const toggleArea = (id: number) => {
 
             {esAdmin && (
               <>
-                <button
-                  type="button"
-                  onClick={() => setModalCorteAbierto(true)}
-                  className="bg-marca-900 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-sm hover:bg-marca-800 transition flex items-center gap-1.5"
-                  title="Generar snapshot formal de cumplimiento"
-                >
-                  <span>📅</span> Cerrar Periodo
-                </button>
 
                 <button
                   onClick={abrirModalInvitacion}
@@ -1033,6 +891,14 @@ const toggleArea = (id: number) => {
         {/* CONTENIDO PRINCIPAL (El que hace Scroll) */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar relative">
           <div className="max-w-[1200px] mx-auto">
+            {(esAdmin || directosIds.size > 0) && (
+              <div className="mb-6">
+                <AvisosPeriodo
+                  personas={esAdmin ? empleados : empleados.filter(e => directosIds.has(e.id))}
+                  cerrados={infoPeriodos.cerrados} diasLimite={infoPeriodos.diasLimite} esAdmin={esAdmin} disponible={infoPeriodos.disponible}
+                />
+              </div>
+            )}
 {/* --- CONTENIDO: TABLERO ADMIN --- */}
             {puedeVerTablero && vista === 'tablero' && (
               <div className="animate-in fade-in space-y-8">
@@ -1532,152 +1398,17 @@ const toggleArea = (id: number) => {
               );
             })()}
 
-            {/* MODAL DE BLOQUEO OFICIAL DE PERIODO */}
-            {modalCorteAbierto && (() => {
-              const etiquetaSeleccionada = `${mesCorte} ${anioCorte}`;
-              const seleccionYaBloqueada = periodosBloqueados.some(
-                p => p.periodo.toLowerCase() === etiquetaSeleccionada.toLowerCase()
-              );
-
-              return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-marca-950/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                  <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 border border-slate-100 animate-in zoom-in-95 duration-200">
-                    <div className="flex justify-between items-center mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="p-2 bg-marca-50 text-marca-700 rounded-xl text-base">🔒</span>
-                        <h3 className="text-base font-bold text-marca-900">Bloquear Periodo Oficial</h3>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setModalCorteAbierto(false)}
-                        className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 font-bold hover:bg-slate-200 text-xs flex items-center justify-center transition"
-                      >
-                        ✕
-                      </button>
-                    </div>
-
-                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                      Selecciona el mes, año y fecha efectiva para congelar el score de los <strong>{empleados.length} colaboradores</strong>.
-                    </p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
-                          Mes
-                        </label>
-                        <select
-                          value={mesCorte}
-                          onChange={(e) => setMesCorte(e.target.value)}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 font-semibold text-marca-900 cursor-pointer"
-                        >
-                          {MESES_ANIO.map((mes) => {
-                            const bloqueado = periodosBloqueados.some(
-                              p => p.periodo.toLowerCase() === `${mes} ${anioCorte}`.toLowerCase()
-                            );
-                            return (
-                              <option key={mes} value={mes} disabled={bloqueado}>
-                                {mes} {bloqueado ? '(🔒 Bloqueado)' : ''}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
-                          Año
-                        </label>
-                        <select
-                          value={anioCorte}
-                          onChange={(e) => {
-                            const nuevoAnio = Number(e.target.value);
-                            setAnioCorte(nuevoAnio);
-                            const primerDisponible = MESES_ANIO.find(
-                              m => !periodosBloqueados.some(p => p.periodo.toLowerCase() === `${m} ${nuevoAnio}`.toLowerCase())
-                            );
-                            if (primerDisponible) setMesCorte(primerDisponible);
-                          }}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 font-semibold text-marca-900 cursor-pointer"
-                        >
-                          {ANIOS_DISPONIBLES.map((anio) => (
-                            <option key={anio} value={anio}>
-                              {anio}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
-                          Fecha de Bloqueo
-                        </label>
-                        <input
-                          type="date"
-                          value={fechaCortePeriodo}
-                          onChange={(e) => setFechaCortePeriodo(e.target.value)}
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-2.5 outline-none focus:border-acento-500 font-semibold text-marca-900 cursor-pointer"
-                        />
-                      </div>
-                    </div>
-
-                    {seleccionYaBloqueada && (
-                      <div className="mb-4 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl">
-                        ⚠️ El periodo <strong>{etiquetaSeleccionada}</strong> ya fue bloqueado. Elige otro mes disponible.
-                      </div>
-                    )}
-
-                    {/* Lista de Periodos Bloqueados */}
-                    <div className="mb-5">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-2">
-                        Periodos Bloqueados ({periodosBloqueados.length})
-                      </span>
-                      {periodosBloqueados.length > 0 ? (
-                        <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                          {periodosBloqueados.map((p) => (
-                            <div
-                              key={p.periodo}
-                              className="flex items-center justify-between bg-slate-50 border border-slate-200/80 px-3 py-2 rounded-xl text-xs"
-                            >
-                              <div>
-                                <span className="font-bold text-marca-900 block">{p.periodo}</span>
-                                <span className="text-[10px] text-slate-400">
-                                  {new Date(p.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} • {p.total} colab.
-                                </span>
-                              </div>
-                              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
-                                🔒 Bloqueado
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200 text-center">
-                          Aún no hay periodos bloqueados.
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setModalCorteAbierto(false)}
-                        className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition"
-                      >
-                        Cerrar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={ejecutarCorteOficial}
-                        disabled={ejecutandoCorte || seleccionYaBloqueada}
-                        className="px-5 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {ejecutandoCorte ? 'Bloqueando...' : `🔒 Bloquear ${etiquetaSeleccionada}`}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
+            {/* CIERRE GUIADO DE PERÍODO (Admin) */}
+            {modalCorteAbierto && esAdmin && (
+              <AsistenteCierre
+                empleados={empleados}
+                areas={areas}
+                cerrados={infoPeriodos.cerrados}
+                diasLimite={infoPeriodos.diasLimite}
+                onClose={() => setModalCorteAbierto(false)}
+                onCambio={recargarDatos}
+              />
+            )}
 
             {/* MODAL DE INVITACIONES INTELIGENTES */}
             {modalInvitarAbierto && (

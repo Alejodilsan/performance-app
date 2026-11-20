@@ -41,13 +41,14 @@ export function FormularioNuevoKPI({ empId, onAdd }: { empId: number, onAdd: (ei
       
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-[10px] font-bold text-slate-500 block mb-1 uppercase">Periodo Evaluación</label>
+          <label className="text-[10px] font-bold text-slate-500 block mb-1 uppercase">Frecuencia de evaluación</label>
           <select className="w-full text-xs p-2 rounded outline-none border border-slate-200 bg-white text-slate-700" value={periodo} onChange={e => setPeriodo(e.target.value as any)}>
-            <option value="mensual">📅 Mensual</option>
-            <option value="trimestral">📊 Trimestral</option>
-            <option value="semestral">⏳ Semestral</option>
-            <option value="anual">🎯 Anual</option>
+            <option value="mensual">📅 Mensual (se evalúa cada mes)</option>
+            <option value="trimestral">📊 Trimestral (mar · jun · sep · dic)</option>
+            <option value="semestral">⏳ Semestral (jun · dic)</option>
+            <option value="anual">🎯 Anual (dic)</option>
           </select>
+          <p className="text-[9px] text-slate-400 mt-1">{periodo === 'mensual' ? 'Se califica cada mes.' : 'Cada mes se registra el avance; se evalúa en el último mes de su ventana.'}</p>
         </div>
 
         <div>

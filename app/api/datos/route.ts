@@ -10,7 +10,10 @@ import { mensajeDeError } from '@/lib/errores'
  * Devuelve SOLO lo que el usuario puede ver según su perfil y la jerarquía de áreas (ver lib/alcance.ts).
  * El filtrado se hace aquí, en el servidor: el navegador nunca recibe datos de desempeño fuera de su alcance.
  */
-const SELECT_FICHA = '*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)';
+const SELECT_FICHA = '*, indicadores(*, resultados:resultados_kpi(*)), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)';
+// Sin la migración 20261121 (resultados_kpi) se usa la consulta anterior para no romper la carga
+const SELECT_FICHA_SIN_PERIODOS = '*, indicadores(*), planes_mejora(*, comentarios(*)), historico:historico_cumplimiento(*)';
+let selectFicha = SELECT_FICHA;
 
 export const dynamic = 'force-dynamic';
 
@@ -29,20 +32,30 @@ export async function GET(request: Request) {
       admin.from('empresas').select('nombre').eq('id', empresaId).maybeSingle(),
       leerConfiguracion(admin, empresaId),
     ]);
+    // Meses cerrados (vacío si aún no está la migración 20261121)
+    const { data: cerradosDB, error: errorCerrados } = await admin.from('periodos_cerrados').select('periodo').eq('empresa_id', empresaId);
 
     // Fichas completas: toda la empresa (Admin con desvinculados) o solo su equipo + él mismo
     let fichas: Empleado[] = [];
     if (esEmpresa) {
-      const { data, error } = await admin.from('empleados').select(SELECT_FICHA).eq('empresa_id', empresaId).order('id');
+      let { data, error } = await admin.from('empleados').select(selectFicha).eq('empresa_id', empresaId).order('id');
+      if (error && selectFicha === SELECT_FICHA && /resultados_kpi/.test(error.message)) {
+        selectFicha = SELECT_FICHA_SIN_PERIODOS;
+        ({ data, error } = await admin.from('empleados').select(selectFicha).eq('empresa_id', empresaId).order('id'));
+      }
       if (error) throw error;
-      fichas = (data || []) as Empleado[];
+      fichas = (data || []) as unknown as Empleado[];
       if (perfil.rol !== 'admin') fichas = fichas.filter(estaActivo); // el Auditor no ve desvinculados
     } else {
       const ids = [...alcance.equipoIds, ...(miBase ? [miBase.id] : [])];
       fichas = await porLotes(ids, async lote => {
-        const { data, error } = await admin.from('empleados').select(SELECT_FICHA).in('id', lote).eq('empresa_id', empresaId);
+        let { data, error } = await admin.from('empleados').select(selectFicha).in('id', lote).eq('empresa_id', empresaId);
+        if (error && selectFicha === SELECT_FICHA && /resultados_kpi/.test(error.message)) {
+          selectFicha = SELECT_FICHA_SIN_PERIODOS;
+          ({ data, error } = await admin.from('empleados').select(selectFicha).in('id', lote).eq('empresa_id', empresaId));
+        }
         if (error) throw error;
-        return (data || []) as Empleado[];
+        return (data || []) as unknown as Empleado[];
       });
     }
     fichas = fichas.map(ordenarPlanes).sort((a, b) => a.id - b.id);
@@ -87,6 +100,11 @@ export async function GET(request: Request) {
       estado: 'ok', perfil, nombreEmpresa: empresa?.nombre || '', miEmpleado, alcance,
       areas, puestos: puestos || [], niveles: niveles || [], empleados: fichas, evaluaciones, directorio, monedaPreferida,
       umbrales: { umbral_desempeno_bajo: config.umbral_desempeno_bajo, umbral_desempeno_alto: config.umbral_desempeno_alto },
+      periodos: {
+        cerrados: (cerradosDB || []).map(p => p.periodo as string),
+        diasLimite: config.dias_limite_calificacion,
+        disponible: !errorCerrados,
+      },
     };
     return NextResponse.json(respuesta);
   } catch (error) {

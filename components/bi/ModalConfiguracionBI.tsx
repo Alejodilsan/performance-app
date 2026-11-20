@@ -71,6 +71,15 @@ export function ModalConfiguracionBI({ config, onClose, onGuardada }: Props) {
         </div>
         <p className="text-[10px] text-slate-500 -mt-2">Se usan en el Nine Box, el tablero y las tarjetas de toda la plataforma.</p>
 
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 pt-2">Calificación de KPIs</p>
+        <div className="grid grid-cols-2 gap-3 items-end">
+          <div>
+            <label className={labelCls}>Días para calificar tras el fin de mes</label>
+            <input type="number" min={0} max={28} step={1} className={inputCls} value={c.dias_limite_calificacion} onChange={e => set('dias_limite_calificacion', Number(e.target.value))} />
+          </div>
+          <p className="text-[10px] text-slate-500 pb-2">Ej.: 5 → octubre se puede calificar hasta el 5 de noviembre. Luego solo el Admin.</p>
+        </div>
+
         {error && <p className="text-[11px] font-semibold text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>

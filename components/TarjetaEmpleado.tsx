@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { ETIQUETA_ESTADO_ACCESO } from '@/lib/accesos'
 import { FormularioNuevoKPI } from './FormularioNuevoKPI'
+import { KpisDelPeriodo } from './periodos/KpisDelPeriodo'
 import { ModalEvaluacionPotencial } from './ModalEvaluacionPotencial'
 import { useUmbrales, coloresDesempeno } from '@/lib/umbrales'
 import { logrosDe } from '@/lib/motivacion'
@@ -18,7 +19,7 @@ interface PropsTarjeta {
 
 export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: PropsTarjeta) {
   const {
-    asignarAreaEmpleado, actualizarIndicador, agregarIndicador,
+    asignarAreaEmpleado, agregarIndicador,
     crearPlan, completarPlan, setExpandidoId, expandidoId,
     textosPlanes, setTextosPlanes, diasPlanes, setDiasPlanes,
     calcularGantt, planChatAbierto, setPlanChatAbierto, enviarComentario,
@@ -33,17 +34,6 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
   const colorDesempeno = coloresDesempeno(emp.cumplimiento_general, umbrales).texto;
   const barBg = coloresDesempeno(emp.cumplimiento_general, umbrales).barra;
   const [modalPotencialAbierto, setModalPotencialAbierto] = useState(false);
-
-  // --- FILTRO Y CÁLCULO POR PERIODO ---
-  const [periodoFiltro, setPeriodoFiltro] = useState<'todos' | 'mensual' | 'trimestral' | 'semestral' | 'anual'>('todos');
-
-  const indicadoresFiltrados = emp.indicadores?.filter(i => 
-    periodoFiltro === 'todos' ? true : (i.periodo || 'trimestral') === periodoFiltro
-  ) || [];
-
-  const cumplimientoPeriodo = indicadoresFiltrados.length > 0 
-    ? Math.round(indicadoresFiltrados.reduce((acc, curr) => acc + curr.progreso, 0) / indicadoresFiltrados.length)
-    : 0;
 
   return (
     <div className={`bg-white rounded-2xl border transition-all duration-200 hover:shadow-lg ${
@@ -234,124 +224,20 @@ export function TarjetaEmpleado({ emp, esLider, areas, allowEdit, funciones }: P
 
           {/* Sección de Indicadores (KPIs) con Pestañas y Filtro */}
           <div>
-            <div className="flex flex-col gap-2 mb-3">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Indicadores Clave</span>
-                <span className="text-xs font-bold text-slate-700">
-                  Score {periodoFiltro !== 'todos' ? `(${periodoFiltro})` : ''}: <span className="text-acento-700">{cumplimientoPeriodo}%</span>
-                </span>
-              </div>
-
-              {/* Selector de periodo */}
-              <div className="flex gap-1 bg-slate-200/60 p-1 rounded-lg text-[10px] font-bold text-slate-600">
-                {(['todos', 'mensual', 'trimestral', 'semestral', 'anual'] as const).map(p => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPeriodoFiltro(p)}
-                    className={`flex-1 py-1 rounded capitalize transition-all ${
-                      periodoFiltro === p ? 'bg-white text-marca-950 shadow-sm' : 'hover:text-marca-950'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-3 mb-3">
-              {indicadoresFiltrados.map((ind) => (
-                <div key={ind.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group">
-                  
-                  {allowEdit && (
-                    <button 
-                      type="button"
-                      onClick={() => funciones.eliminarIndicador(ind.id)}
-                      className="absolute top-2 right-2 text-red-300 hover:text-red-600 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors text-xs font-bold"
-                      title="Eliminar KPI"
-                    >
-                      🗑️ Borrar
-                    </button>
-                  )}
-
-                  <div className="pr-16">
-                    <div className="flex justify-between items-center mb-1 font-semibold text-slate-700">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="truncate text-sm">{ind.titulo}</span>
-                        <span className="text-[10px] text-slate-400 capitalize">({ind.periodo || 'trimestral'})</span>
-                      </div>
-                      <span className={`text-lg ml-2 ${ind.progreso < umbrales.umbral_desempeno_bajo ? 'text-amber-600 font-black' : 'text-marca-900 font-black'}`}>
-                        {ind.progreso || 0}%
-                      </span>
-                    </div>
-                    {ind.descripcion && <p className="text-[11px] text-slate-500 mb-3 leading-tight border-b border-slate-100 pb-2">{ind.descripcion}</p>}
-                  </div>
-                  
-                  <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    <div className="flex-1">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Meta a lograr:</span>
-                      <span className="text-sm font-bold text-marca-900">{ind.meta_esperada || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida || 'Und.'}</span></span>
-                    </div>
-                    
-                    <div className="w-px h-8 bg-slate-200 mx-2"></div>
-                    
-                    <div className="flex-1">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Resultado actual:</span>
-                      {allowEdit ? (
-                        <div className="flex items-center gap-2">
-                           <input
-                              type="number"
-                              className="w-20 p-1.5 text-xs bg-white border border-slate-300 rounded focus:border-acento-500 outline-none text-marca-900 font-bold"
-                              value={ind.resultado_actual === 0 ? '' : ind.resultado_actual}
-                              placeholder="0"
-                              onChange={(e) => {
-                                const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                                actualizarIndicador(ind.id, isNaN(val) ? 0 : val, emp.id);
-                              }}
-                           />
-                           <span className="text-xs text-slate-500">{ind.unidad_medida}</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm font-bold text-marca-900">{ind.resultado_actual || 0} <span className="text-xs font-normal text-slate-500">{ind.unidad_medida}</span></span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Barra de progreso */}
-                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden mt-3 w-full">
-                     <div className={`h-full rounded-full transition-all duration-700 ${ind.progreso >= 100 ? 'bg-acento-500' : coloresDesempeno(ind.progreso || 0, umbrales).barra}`} style={{ width: `${ind.progreso || 0}%` }}></div>
-                  </div>
-
-                  {/* Feedback Continuo del Líder */}
-                  <div className="mt-3 pt-3 border-t border-slate-100">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Feedback del proceso (Líder)</label>
-                    {allowEdit ? (
-                      <textarea
-                        className="w-full text-[10px] bg-slate-50/50 border border-slate-200 rounded p-2 text-slate-600 outline-none focus:border-slate-400 resize-none min-h-[40px]"
-                        placeholder="Añade observaciones sobre el avance de este KPI..."
-                        defaultValue={ind.feedback_lider || ''}
-                        onBlur={(e) => {
-                          if (e.target.value !== ind.feedback_lider) {
-                            funciones.guardarFeedbackKPI?.(ind.id, emp.id, e.target.value);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <p className="text-[10px] text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 italic">
-                        {ind.feedback_lider || "Aún no hay retroalimentación registrada."}
-                      </p>
-                    )}
-                    {ind.fecha_feedback && (
-                      <p className="text-[8px] text-slate-400 mt-1 text-right">Última rev: {new Date(ind.fecha_feedback).toLocaleDateString()}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {indicadoresFiltrados.length === 0 && (
-                <p className="text-xs text-slate-400 italic text-center py-4 bg-white rounded-xl border border-dashed border-slate-200">
-                  No hay indicadores registrados para el periodo seleccionado.
-                </p>
+            <div className="mb-3">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-2">Indicadores clave</span>
+              {funciones.periodos && funciones.calificarKpi ? (
+                <KpisDelPeriodo
+                  emp={emp}
+                  allowEdit={allowEdit}
+                  esAdmin={!!funciones.esAdmin}
+                  periodos={funciones.periodos}
+                  calificar={funciones.calificarKpi}
+                  eliminar={funciones.eliminarIndicador}
+                  guardarFeedback={funciones.guardarFeedbackKPI}
+                />
+              ) : (
+                <p className="text-xs text-slate-400 italic">Cargando períodos…</p>
               )}
             </div>
 
