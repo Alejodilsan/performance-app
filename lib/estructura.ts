@@ -437,6 +437,13 @@ export function analizarCarga(libro: LibroCarga, ctx: ContextoCarga, op: Opcione
 
   // ---------- 5. Cierre de la hoja Áreas: líderes y acción ----------
   const filaColab = new Map(colaboradores.filas.map(f => [f.email, f]));
+  // Una persona lidera una sola área: el mismo correo como líder en varias filas es un error
+  const filasPorLider = new Map<string, FilaEstructura[]>();
+  filasAreas.forEach(f => { if (f.liderEmail && f.errores.length === 0 && filaDeArea.get(f.clave) === f) filasPorLider.set(f.liderEmail, [...(filasPorLider.get(f.liderEmail) || []), f]); });
+  filasPorLider.forEach((lista, email) => {
+    if (lista.length > 1) lista.forEach(f => f.errores.push(`${email} figura como líder de ${lista.length} áreas (filas ${lista.map(x => x.numero).join(', ')}): una persona lidera una sola área.`));
+  });
+  const areasConLiderEnHoja = new Set(filasAreas.filter(f => f.liderEmail && f.errores.length === 0).map(f => f.clave));
   for (const fila of filasAreas) {
     if (fila.accion === 'sin_cambios' && fila.errores.length === 0) continue; // repetida
     if (fila.errores.length > 0) { fila.accion = 'error'; continue; }
@@ -449,6 +456,23 @@ export function analizarCarga(libro: LibroCarga, ctx: ContextoCarga, op: Opcione
       }
       const tipo = fc?.datos?.tipo_perfil ?? activoPorEmail.get(fila.liderEmail)?.tipo_perfil ?? 'Empleado';
       if (!['Líder de Área', 'Manager', 'Admin'].includes(tipo)) fila.advertencias.push(`${fc?.datos?.nombre || activoPorEmail.get(fila.liderEmail)?.nombre || fila.liderEmail} liderará el área pero su tipo de perfil es "${tipo}" (considera "Líder de Área").`);
+      // El líder pertenece al área que lidera (un solo equipo)
+      const persona = activoPorEmail.get(fila.liderEmail);
+      const nombreLider = fc?.datos?.nombre || persona?.nombre || fila.liderEmail;
+      const areaEnHoja = limpiarNombre(libro.colaboradores.find(c => (c.valores.email || '').trim().toLowerCase() === fila.liderEmail)?.valores.area);
+      if (fc && fc.accion !== 'error' && fc.datos && areaEnHoja && fc.datos.area_id !== String(area.id)) {
+        fila.errores.push(`En la hoja Colaboradores ${nombreLider} queda en "${fc.areaNombre || areaEnHoja}": el líder debe pertenecer al área que lidera. Pon "${area.nombre}" en su área${persona ? ' o deja la celda vacía' : ''}.`);
+        fila.accion = 'error'; continue;
+      }
+      if ((!fc || !areaEnHoja) && (persona ? persona.area_id !== area.id : !!fc)) {
+        fila.advertencias.push(persona
+          ? `${nombreLider} pasará de "${nombreAreaPorId.get(persona.area_id ?? -1) ?? 'sin área'}" a "${area.nombre}" para liderarla.`
+          : `${nombreLider} quedará en "${area.nombre}" para liderarla.`);
+      }
+      const lideraOtra = persona ? ctx.areas.find(a => a.lider_id === persona.id && a.id !== area.id) : undefined;
+      if (lideraOtra && !areasConLiderEnHoja.has(normalizarNombre(lideraOtra.nombre))) {
+        fila.advertencias.push(`${nombreLider} dejará de liderar "${lideraOtra.nombre}", que quedará sin líder.`);
+      }
       const antes = existente?.lider_id ? emailPorId.get(existente.lider_id) : undefined;
       if (existente && antes !== fila.liderEmail) fila.cambios.push({ campo: 'Líder', antes: antes || '—', despues: fila.liderEmail });
     }

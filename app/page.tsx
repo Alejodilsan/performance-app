@@ -368,7 +368,29 @@ const toggleArea = (id: number) => {
     await supabase.from('areas').update({ parent_id: npid }).eq('id', aid);
     recargarDatos();
   }
-  async function asignarLiderArea(aid: number, lid: string) { await supabase.from('areas').update({ lider_id: lid === "" ? null : parseInt(lid) }).eq('id', aid); recargarDatos(); }
+  // Un líder pertenece al área que lidera y lidera solo una (la BD lo garantiza: migración 20261122).
+  // Si viene de otra área o lideraba otra, se confirma antes porque cambia su ubicación.
+  async function asignarLiderArea(aid: number, lid: string) {
+    const nuevoId = lid === '' ? null : parseInt(lid);
+    const area = areas.find(a => a.id === aid);
+    if (nuevoId !== null && area) {
+      const persona = empleados.find(e => e.id === nuevoId);
+      const lideraOtra = areas.find(a => a.lider_id === nuevoId && a.id !== aid);
+      const areaActual = areas.find(a => a.id === persona?.area_id);
+      const avisos = [
+        persona && persona.area_id !== aid && `• ${persona.nombre} pertenece a "${areaActual?.nombre ?? 'sin área'}" y pasará a "${area.nombre}".`,
+        lideraOtra && `• Dejará de liderar "${lideraOtra.nombre}", que quedará sin líder.`,
+        area.lider_id && area.lider_id !== nuevoId && `• ${empleados.find(e => e.id === area.lider_id)?.nombre ?? 'El líder actual'} deja de ser líder de "${area.nombre}" (sigue en el área).`,
+      ].filter(Boolean);
+      if (avisos.length > 0 && !window.confirm(`¿Asignar a ${persona?.nombre ?? 'esta persona'} como líder de "${area.nombre}"?\n\n${avisos.join('\n')}`)) {
+        recargarDatos(); // devuelve el selector a su valor
+        return;
+      }
+    }
+    const { error } = await supabase.from('areas').update({ lider_id: nuevoId }).eq('id', aid);
+    if (error) alert(/areas_lider_unico_idx/.test(error.message) ? 'Esa persona ya lidera otra área.' : 'No se pudo asignar el líder: ' + error.message);
+    recargarDatos();
+  }
   async function asignarAreaEmpleado(eid: number, aid: string) { await supabase.from('empleados').update({ area_id: aid === "" ? null : parseInt(aid) }).eq('id', eid); recargarDatos(); }
 
   // ==========================================

@@ -87,6 +87,11 @@ export function TarjetaSaludArea({
   }
 
   const liderActual = todosLosEmpleados.find(e => e.id === area.lider_id);
+  const liderEnArea = !!liderActual && empleadosArea.some(e => e.id === liderActual.id);
+  const equipo = listaColaboradores.filter(e => e.id !== area.lider_id);
+  const liderVisible = liderActual && (!filtrando || listaColaboradores.some(e => e.id === liderActual.id)) ? liderActual : null;
+  const nEquipo = total - (liderEnArea ? 1 : 0);
+  const iniciales = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
 
   return (
     <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md hover:opacity-100 ${
@@ -149,11 +154,20 @@ export function TarjetaSaludArea({
                 </div>
               )}
             </div>
-            <p className="text-xs text-slate-500 flex items-center gap-2">
-              <span>👑 Líder: <strong className="text-slate-700">{liderActual ? liderActual.nombre : 'Sin asignar'}</strong></span>
-              <span>•</span>
-              <span>👥 Headcount: <strong className="text-slate-700">{total} colaboradores</strong></span>
-            </p>
+            <div className="flex items-center gap-3 flex-wrap pt-1">
+              {liderActual ? (
+                <span className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full pl-1 pr-3 py-1">
+                  <span className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-white text-[11px] font-bold flex items-center justify-center" aria-hidden>{iniciales(liderActual.nombre)}</span>
+                  <span className="leading-tight">
+                    <span className="block text-[9px] font-black uppercase tracking-wider text-amber-700">👑 Líder del área</span>
+                    <span className="block text-xs font-bold text-marca-900">{liderActual.nombre}<span className="font-normal text-slate-500"> · {liderActual.puesto}</span></span>
+                  </span>
+                </span>
+              ) : (
+                <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-dashed border-amber-300 rounded-full px-3 py-1.5">👑 Sin líder asignado</span>
+              )}
+              <span className="text-xs text-slate-500">👥 {liderEnArea ? '1 líder + ' : ''}<strong className="text-slate-700">{nEquipo} colaborador{nEquipo === 1 ? '' : 'es'}</strong></span>
+            </div>
           </div>
 
           {/* Score Promedio y Barra de Rendimiento */}
@@ -184,13 +198,13 @@ export function TarjetaSaludArea({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-100 text-xs">
           
           <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Top Talent (≥85%)</span>
-            <span className="text-sm font-black text-emerald-600">{topPerformers}</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Top Talent (≥{u.umbral_desempeno_alto}%)</span>
+            <span className="text-sm font-black text-acento-600">{topPerformers}</span>
             <span className="text-[10px] text-slate-400 ml-1">colaboradores</span>
           </div>
 
           <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Estándar (60-84%)</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-0.5">Estándar ({u.umbral_desempeno_bajo}-{u.umbral_desempeno_alto - 1}%)</span>
             <span className="text-sm font-black text-slate-700">{estandar}</span>
             <span className="text-[10px] text-slate-400 ml-1">colaboradores</span>
           </div>
@@ -223,7 +237,16 @@ export function TarjetaSaludArea({
                   onChange={(e) => asignarLiderArea(area.id, e.target.value)}
                 >
                   <option value="">-- Sin Asignar --</option>
-                  {todosLosEmpleados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                  <optgroup label={`De ${area.nombre}`}>
+                    {todosLosEmpleados.filter(e => e.area_id === area.id).map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                  </optgroup>
+                  <optgroup label="De otras áreas (pasará a esta área)">
+                    {todosLosEmpleados.filter(e => e.area_id !== area.id).map(e => {
+                      const lidera = todasLasAreas.find(a => a.lider_id === e.id);
+                      const enArea = todasLasAreas.find(a => a.id === e.area_id);
+                      return <option key={e.id} value={e.id}>{e.nombre}{lidera ? ` (lidera ${lidera.nombre})` : enArea ? ` (en ${enArea.nombre})` : ''}</option>;
+                    })}
+                  </optgroup>
                 </select>
               ) : (
                 <span className="text-xs font-semibold text-slate-700">
@@ -277,13 +300,24 @@ export function TarjetaSaludArea({
               Mostrando {listaColaboradores.length} de {total} colaboradores que coinciden con la búsqueda.
             </p>
           )}
-          {listaColaboradores.length > 0 ? (
+          {liderVisible && (
+            <div className="mb-6">
+              <p className="text-[10px] font-black uppercase tracking-wider text-amber-700 mb-2">👑 Líder del área</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                <div className="rounded-2xl ring-2 ring-amber-300/70 ring-offset-2 ring-offset-slate-50">
+                  <TarjetaEmpleado emp={liderVisible} esLider areas={todasLasAreas} allowEdit={puedeEditarEmpleado(liderVisible)} funciones={funcionesTarjeta} />
+                </div>
+              </div>
+            </div>
+          )}
+          <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">👥 Equipo ({equipo.length})</p>
+          {equipo.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {listaColaboradores.map(emp => (
+              {equipo.map(emp => (
                 <TarjetaEmpleado
                   key={emp.id}
                   emp={emp}
-                  esLider={area.lider_id === emp.id}
+                  esLider={false}
                   areas={todasLasAreas}
                   allowEdit={puedeEditarEmpleado(emp)}
                   funciones={funcionesTarjeta}
@@ -292,7 +326,7 @@ export function TarjetaSaludArea({
             </div>
           ) : (
             <p className="text-center text-xs text-slate-400 italic py-6">
-              {filtrando ? 'Ningún colaborador de esta área coincide con la búsqueda.' : 'No hay colaboradores asignados a esta área todavía.'}
+              {filtrando ? 'Ningún colaborador de esta área coincide con la búsqueda.' : 'No hay colaboradores en el equipo de esta área todavía.'}
             </p>
           )}
         </div>

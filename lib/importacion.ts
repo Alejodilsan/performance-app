@@ -297,7 +297,12 @@ export function analizarImportacion(filasArchivo: FilaArchivo[], ctx: ContextoIm
         d.area_id = String(idAreaNueva.get(k)); fila.areaNombre = areasNuevas.get(k);
         fila.advertencias.push(`Se creará el área "${areasNuevas.get(k)}" (como área principal; agrégala a la hoja Áreas para ubicarla).`);
       } else err(`El área "${t('area')}" no existe: agrégala a la hoja Áreas.`);
-    } else fila.areaNombre = d.area_id ? nombreArea(d.area_id) : null;
+    } else {
+      // Sin área en la fila: si la hoja Áreas la nombra líder de un área, pertenece a esa área
+      const liderDe = [...(ctx.lideresAsignados || [])].find(([, correo]) => correo === email)?.[0];
+      if (liderDe) d.area_id = liderDe;
+      fila.areaNombre = d.area_id ? nombreArea(d.area_id) : null;
+    }
 
     // Cargo (por nombre, dentro del área final del colaborador)
     if (t('puesto')) {
@@ -444,6 +449,11 @@ function validarEntreFilas(filas: FilaAnalizada[], ctx: ContextoImportacion) {
   });
   lideres.forEach((lista, areaId) => {
     if (lista.length > 1) lista.forEach(f => marcarError(f, `Hay más de un "Líder de Área" para ${f.areaNombre || 'esa área'} en el archivo.`));
+    // Una persona lidera una sola área: si ya lideraba otra, la deja
+    lista.forEach(f => {
+      const otra = f.empleadoId ? ctx.areas.find(a => a.lider_id === f.empleadoId && String(a.id) !== areaId) : undefined;
+      if (otra) f.advertencias.push(`Dejará de liderar "${otra.nombre}" (una persona lidera una sola área).`);
+    });
     const asignado = ctx.lideresAsignados?.get(areaId);
     if (asignado) {
       // La hoja Áreas manda: el líder del área es quien diga su columna "Email líder"

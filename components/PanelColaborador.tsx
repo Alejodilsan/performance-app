@@ -97,6 +97,9 @@ export function PanelColaborador({
     if (creado) { set('puesto_id', String(creado.id)); setNuevoPuesto(null); }
   }
 
+  // Un líder pertenece al área que lidera: si se le cambia el área, deja de liderarla (lo hace la BD)
+  const areaQueLidera = emp ? areas.find(a => a.lider_id === emp.id) : undefined;
+
   // Cargos: primero los del área elegida
   const areaIdNum = d.area_id ? Number(d.area_id) : null;
   const nombreAreaSel = areas.find(a => a.id === areaIdNum)?.nombre;
@@ -185,7 +188,7 @@ export function PanelColaborador({
             </Campo>
 
             <div className="grid grid-cols-2 gap-3">
-              <Campo label="Área" error={err('area_id')}>
+              <Campo label="Área" error={err('area_id')} ayuda={areaQueLidera && d.area_id !== String(areaQueLidera.id) ? `Dejará de liderar "${areaQueLidera.nombre}": un líder pertenece al área que lidera.` : undefined}>
                 <select className={inputCls} value={d.area_id} onChange={e => cambiarArea(e.target.value)}>
                   <option value="">-- Sin área (pendiente) --</option>
                   {areas.map(a => (
