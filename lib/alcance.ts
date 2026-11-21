@@ -48,7 +48,18 @@ export function calcularAlcance(rol: Perfil['rol'] | undefined, miId: number | n
   equipo.delete(miId);
 
   // 3. Reportes directos
-  const idsRaiz = new Set(areasRaiz.map(a => a.id));
+  const directosIds = reportesDirectos(miId, areas, activos);
+
+  const tipo: TipoAlcance = areasIds.size > 0 || equipo.size > 0 ? 'equipo' : 'personal';
+  return { tipo, areasIds: [...areasIds], equipoIds: [...equipo], directosIds };
+}
+
+/**
+ * Reportes DIRECTOS de una persona: miembros de las áreas que lidera, líderes de sus sub-áreas inmediatas y
+ * quienes la tienen como jefe directo (solo activos). Es la misma regla para cualquier nivel de la jerarquía.
+ */
+export function reportesDirectos(miId: number, areas: Area[], activos: EmpleadoMinimo[]): number[] {
+  const idsRaiz = new Set(areas.filter(a => a.lider_id === miId).map(a => a.id));
   const directos = new Set<number>();
   activos.forEach(e => {
     if (e.id === miId) return;
@@ -58,10 +69,6 @@ export function calcularAlcance(rol: Perfil['rol'] | undefined, miId: number | n
   areas.forEach(sub => {
     if (sub.parent_id !== null && idsRaiz.has(sub.parent_id) && sub.lider_id && sub.lider_id !== miId) directos.add(sub.lider_id);
   });
-  // Solo cuentan los que siguen activos
   const activosIds = new Set(activos.map(e => e.id));
-  const directosIds = [...directos].filter(id => activosIds.has(id));
-
-  const tipo: TipoAlcance = areasIds.size > 0 || equipo.size > 0 ? 'equipo' : 'personal';
-  return { tipo, areasIds: [...areasIds], equipoIds: [...equipo], directosIds };
+  return [...directos].filter(id => activosIds.has(id));
 }

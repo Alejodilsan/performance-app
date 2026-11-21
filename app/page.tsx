@@ -33,6 +33,9 @@ import { PanelBI } from '@/components/bi/PanelBI'
 import { AsistenteImportacion } from '@/components/importacion/AsistenteImportacion'
 import { AsistenteCierre } from '@/components/periodos/AsistenteCierre'
 import { VistaOKR } from '@/components/okr/VistaOKR'
+import { MiEquipo } from '@/components/inicio/MiEquipo'
+import { BuscadorGlobal } from '@/components/BuscadorGlobal'
+import { ancestrosDe } from '@/lib/busqueda'
 import { cargarOKR } from '@/lib/okrApi'
 import type { ObjetivoOKR, ResultadoClave } from '@/lib/okr'
 import { AvisosPeriodo, ChipPeriodo } from '@/components/periodos/AvisosPeriodo'
@@ -50,7 +53,11 @@ export default function DashboardPerformance() {
   const [monedaPreferida, setMonedaPreferida] = useState('COP')
   const [accesoRecienCreado, setAccesoRecienCreado] = useState<ResultadoOtorgar | null>(null)
   const [empleadoDesvinculando, setEmpleadoDesvinculando] = useState<Empleado | null>(null)
-  const [busqueda, setBusqueda] = useState('') // buscador del header: filtra áreas y colaboradores
+  const [busqueda, setBusqueda] = useState('') // texto del buscador del encabezado (muestra resultados desplegables)
+  const [filtroArbol, setFiltroArbol] = useState('') // búsqueda aplicada como filtro del árbol "Por áreas" (solo si se pide)
+  const [seleccionPersona, setSeleccionPersona] = useState<{ id: number; marca: number } | null>(null)
+  const [areaResaltada, setAreaResaltada] = useState<number | null>(null)
+  const [areaRevelada, setAreaRevelada] = useState<number | null>(null)
   const [areas, setAreas] = useState<Area[]>([])
   const [evaluaciones, setEvaluaciones] = useState<Evaluacion[]>([])
   const [miDesempeno, setMiDesempeno] = useState<Empleado | null>(null)
@@ -73,7 +80,9 @@ export default function DashboardPerformance() {
   const [directorio, setDirectorio] = useState<EntradaDirectorio[]>([])
   // Umbrales de desempeño de la empresa (configurables en el BI); los usan todas las pantallas
   const [umbrales, setUmbrales] = useState<UmbralesDesempeno>(CONFIG_BI_DEFECTO)
-  const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_perfil' | 'evaluaciones' | 'okr'>('tablero')
+  const [vista, setVista] = useState<'tablero' | 'organigrama' | 'informes' | 'mi_perfil' | 'evaluaciones' | 'okr' | 'estructura'>('tablero')
+  // Inicio: 'equipo' = jerarquía por personas (zoom por niveles); 'areas' = árbol por áreas
+  const [pestanaInicio, setPestanaInicio] = useState<'equipo' | 'areas'>('equipo')
 
   const [nuevaAreaNombre, setNuevaAreaNombre] = useState(''); const [nuevaAreaPadre, setNuevaAreaPadre] = useState<string>("");
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
@@ -750,7 +759,7 @@ const toggleArea = (id: number) => {
     : [];
 
   // Árbol jerárquico de áreas (según "Depende de") y su versión filtrada por el buscador
-  const consultaBusqueda = normalizarTexto(busqueda);
+  const consultaBusqueda = normalizarTexto(filtroArbol);
   const jerarquiaAreas = useMemo(() => construirJerarquia(areasVisibles), [areasVisibles]);
   const resultadoBusqueda = useMemo(
     () => consultaBusqueda ? filtrarJerarquia(jerarquiaAreas, empleados, consultaBusqueda) : null,
@@ -771,8 +780,21 @@ const toggleArea = (id: number) => {
   const puedeBuscar = puedeVerTablero;
   function cambiarBusqueda(texto: string) {
     setBusqueda(texto);
-    // La búsqueda se ve en el tablero: llevamos al usuario ahí
-    if (texto && vista !== 'tablero') setVista('tablero');
+    if (!texto) setFiltroArbol('');
+  }
+
+  // Resultado elegido en el buscador: la persona se ubica en "Mi equipo"; el área, en "Por áreas"
+  function irAPersona(emp: Empleado) {
+    setVista('tablero'); setPestanaInicio('equipo');
+    setSeleccionPersona({ id: emp.id, marca: Date.now() });
+  }
+  function irAArea(area: Area) {
+    setFiltroArbol(''); setVista('tablero'); setPestanaInicio('areas');
+    setAreaRevelada(area.id); setAreaResaltada(area.id);
+    setTimeout(() => setAreaResaltada(actual => (actual === area.id ? null : actual)), 5000);
+  }
+  function filtrarArbol() {
+    setFiltroArbol(busqueda); setVista('tablero'); setPestanaInicio('areas');
   }
 
 
@@ -841,6 +863,7 @@ const toggleArea = (id: number) => {
               <BotonLateral icono="🏠" texto="Inicio" activo={vista === 'tablero'} onClick={() => setVista('tablero')} visible={puedeVerTablero} />
               <BotonLateral icono="👤" texto="Mi Perfil" activo={vista === 'mi_perfil'} onClick={() => setVista('mi_perfil')} visible={true} />
               <BotonLateral icono="🗂️" texto="Organigrama" activo={vista === 'organigrama'} onClick={() => setVista('organigrama')} visible={true} />
+              <BotonLateral icono="⚙️" texto="Estructura" activo={vista === 'estructura'} onClick={() => setVista('estructura')} visible={esAdmin} />
             </div>
           </div>
 
@@ -873,21 +896,8 @@ const toggleArea = (id: number) => {
           <div className="flex items-center gap-4">
             {/* Buscador: filtra áreas y colaboradores */}
             {puedeBuscar && (
-              <div className="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-full px-4 py-1.5 text-sm focus-within:border-acento-500 focus-within:bg-white transition-colors">
-                <span className="mr-2 text-slate-400">🔍</span>
-                <input
-                  type="search"
-                  value={busqueda}
-                  onChange={e => cambiarBusqueda(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Escape') setBusqueda(''); }}
-                  placeholder="Buscar área o colaborador..."
-                  aria-label="Buscar área o colaborador"
-                  className="bg-transparent outline-none text-slate-700 placeholder:text-slate-400 w-56 [&::-webkit-search-cancel-button]:hidden"
-                />
-                {busqueda && (
-                  <button type="button" onClick={() => setBusqueda('')} className="ml-1 text-slate-400 hover:text-slate-700 text-xs" aria-label="Limpiar búsqueda">✕</button>
-                )}
-              </div>
+              <BuscadorGlobal valor={busqueda} onCambiar={cambiarBusqueda} empleados={empleados} areas={areasVisibles}
+                onElegirPersona={irAPersona} onElegirArea={irAArea} onVerTodos={filtrarArbol} />
             )}
             <ChipPeriodo cerrados={infoPeriodos.cerrados} diasLimite={infoPeriodos.diasLimite} esAdmin={esAdmin}
               onCerrar={esAdmin && infoPeriodos.disponible ? () => setModalCorteAbierto(true) : undefined} />
@@ -948,10 +958,102 @@ const toggleArea = (id: number) => {
             )}
 {/* --- CONTENIDO: TABLERO ADMIN --- */}
             {puedeVerTablero && vista === 'tablero' && (
-              <div className="animate-in fade-in space-y-8">
+              <div className="animate-in fade-in space-y-6">
+                <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Vista del inicio">
+                  {([['equipo', '👥 Mi equipo'], ['areas', '🏢 Por áreas']] as const).map(([id, texto]) => (
+                    <button key={id} type="button" role="tab" aria-selected={pestanaInicio === id} onClick={() => setPestanaInicio(id)}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition ${pestanaInicio === id ? 'bg-marca-900 text-white shadow-sm' : 'bg-white text-marca-600 border border-marca-100 hover:bg-marca-50'}`}>
+                      {texto}
+                    </button>
+                  ))}
+                </div>
 
-                {esAdmin && (
-                  <>
+                {pestanaInicio === 'equipo' && (
+                  <MiEquipo empleados={empleados} areas={areas} yo={miDesempeno} puedeEditar={puedeEditarColaborador} funciones={funcionesTarjeta} seleccion={seleccionPersona} />
+                )}
+
+                {pestanaInicio === 'areas' && (
+                <div className="space-y-8">
+
+                {/* Resumen de la búsqueda */}
+                {resultadoBusqueda && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl px-5 py-3 text-xs">
+                    <span className="text-slate-600">
+                      🔍 <strong className="text-marca-900">&quot;{filtroArbol.trim()}&quot;</strong>:{' '}
+                      {resultadoBusqueda.totalAreas} área(s) y {resultadoBusqueda.totalEmpleados} colaborador(es) encontrados
+                    </span>
+                    <button type="button" onClick={() => { setFiltroArbol(''); setBusqueda(''); }} className="font-bold text-acento-700 hover:underline">
+                      Limpiar búsqueda
+                    </button>
+                  </div>
+                )}
+
+                {/* Áreas en orden jerárquico, con Health Cards */}
+                {resultadoBusqueda && resultadoBusqueda.nodos.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 italic py-10">No hay áreas ni colaboradores que coincidan con la búsqueda.</p>
+                ) : (
+                  <ArbolAreas
+                    nodos={resultadoBusqueda ? resultadoBusqueda.nodos : jerarquiaAreas}
+                    forzarAbiertas={!!resultadoBusqueda}
+                    revelar={areaRevelada ? ancestrosDe(areaRevelada, areas) : []}
+                    renderArea={({ area, ruta }) => {
+                      const miembrosArea = empleados.filter(e => e.area_id === area.id);
+                      // Con búsqueda: si coincide el nombre del área se ven todos; si no, solo los colaboradores que coinciden
+                      const coincideArea = resultadoBusqueda?.areasCoincidentes.has(area.id);
+                      const empCoinciden = resultadoBusqueda?.empleadosCoincidentesPorArea.get(area.id) || [];
+                      const empleadosVisibles = resultadoBusqueda && !coincideArea ? empCoinciden : undefined;
+                      return (
+                        <TarjetaSaludArea
+                          area={area}
+                          resaltada={areaResaltada === area.id}
+                          ruta={ruta}
+                          empleadosArea={miembrosArea}
+                          empleadosVisibles={empleadosVisibles}
+                          atenuada={!!resultadoBusqueda && !coincideArea && empCoinciden.length === 0}
+                          todosLosEmpleados={empleados}
+                          todasLasAreas={areas}
+                          opcionesPadre={opcionesPadrePorArea.get(area.id)}
+                          estaAbierta={!!areasAbiertas[area.id] || (!!resultadoBusqueda && !coincideArea && empCoinciden.length > 0)}
+                          onToggle={() => toggleArea(area.id)}
+                          funcionesTarjeta={funcionesTarjeta}
+                          asignarLiderArea={asignarLiderArea}
+                          asignarPadreArea={asignarPadreArea}
+                          calcularGantt={calcularGantt}
+                          puedeEditarEstructura={esAdmin}
+                          puedeEditarEmpleado={puedeEditarColaborador}
+                          renombrarArea={esAdmin ? renombrarArea : undefined}
+                          eliminarArea={esAdmin ? eliminarArea : undefined}
+                        />
+                      );
+                    }}
+                  />
+                )}
+
+                {/* Personas de su equipo que le reportan desde áreas que no lidera (jefe directo) */}
+                {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).length > 0 && (
+                  <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 md:p-6">
+                    <h3 className="text-sm font-bold text-marca-900 mb-1">👤 Reportes de otras áreas</h3>
+                    <p className="text-[11px] text-slate-500 mb-4">Te tienen como jefe directo aunque pertenecen a un área que no lideras.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                      {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).map(emp => (
+                        <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={puedeEditarColaborador(emp)} funciones={funcionesTarjeta} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                </div>
+                )}
+              </div>
+            )}
+
+            {/* --- CONTENIDO: ESTRUCTURA (Admin) --- */}
+            {esAdmin && vista === 'estructura' && (
+              <div className="animate-in fade-in space-y-8">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-marca-900">⚙️ Estructura</h2>
+                  <p className="text-sm text-slate-500">Áreas, cargos, alta de colaboradores y asignaciones pendientes.</p>
+                </div>
                     {/* Panel superior: Crear Área, catálogo de cargos y Nuevo Colaborador */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       {/* Crear Área */}
@@ -1111,74 +1213,6 @@ const toggleArea = (id: number) => {
                         </div>
                       );
                     })()}
-                  </>
-                )}
-
-                {/* Resumen de la búsqueda */}
-                {resultadoBusqueda && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl px-5 py-3 text-xs">
-                    <span className="text-slate-600">
-                      🔍 <strong className="text-marca-900">&quot;{busqueda.trim()}&quot;</strong>:{' '}
-                      {resultadoBusqueda.totalAreas} área(s) y {resultadoBusqueda.totalEmpleados} colaborador(es) encontrados
-                    </span>
-                    <button type="button" onClick={() => setBusqueda('')} className="font-bold text-acento-700 hover:underline">
-                      Limpiar búsqueda
-                    </button>
-                  </div>
-                )}
-
-                {/* Áreas en orden jerárquico, con Health Cards */}
-                {resultadoBusqueda && resultadoBusqueda.nodos.length === 0 ? (
-                  <p className="text-center text-sm text-slate-400 italic py-10">No hay áreas ni colaboradores que coincidan con la búsqueda.</p>
-                ) : (
-                  <ArbolAreas
-                    nodos={resultadoBusqueda ? resultadoBusqueda.nodos : jerarquiaAreas}
-                    forzarAbiertas={!!resultadoBusqueda}
-                    renderArea={({ area, ruta }) => {
-                      const miembrosArea = empleados.filter(e => e.area_id === area.id);
-                      // Con búsqueda: si coincide el nombre del área se ven todos; si no, solo los colaboradores que coinciden
-                      const coincideArea = resultadoBusqueda?.areasCoincidentes.has(area.id);
-                      const empCoinciden = resultadoBusqueda?.empleadosCoincidentesPorArea.get(area.id) || [];
-                      const empleadosVisibles = resultadoBusqueda && !coincideArea ? empCoinciden : undefined;
-                      return (
-                        <TarjetaSaludArea
-                          area={area}
-                          ruta={ruta}
-                          empleadosArea={miembrosArea}
-                          empleadosVisibles={empleadosVisibles}
-                          atenuada={!!resultadoBusqueda && !coincideArea && empCoinciden.length === 0}
-                          todosLosEmpleados={empleados}
-                          todasLasAreas={areas}
-                          opcionesPadre={opcionesPadrePorArea.get(area.id)}
-                          estaAbierta={!!areasAbiertas[area.id] || (!!resultadoBusqueda && !coincideArea && empCoinciden.length > 0)}
-                          onToggle={() => toggleArea(area.id)}
-                          funcionesTarjeta={funcionesTarjeta}
-                          asignarLiderArea={asignarLiderArea}
-                          asignarPadreArea={asignarPadreArea}
-                          calcularGantt={calcularGantt}
-                          puedeEditarEstructura={esAdmin}
-                          puedeEditarEmpleado={puedeEditarColaborador}
-                          renombrarArea={esAdmin ? renombrarArea : undefined}
-                          eliminarArea={esAdmin ? eliminarArea : undefined}
-                        />
-                      );
-                    }}
-                  />
-                )}
-
-                {/* Personas de su equipo que le reportan desde áreas que no lidera (jefe directo) */}
-                {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).length > 0 && (
-                  <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 md:p-6">
-                    <h3 className="text-sm font-bold text-marca-900 mb-1">👤 Reportes de otras áreas</h3>
-                    <p className="text-[11px] text-slate-500 mb-4">Te tienen como jefe directo aunque pertenecen a un área que no lideras.</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                      {reportesFueraDeArea.filter(e => coincideEmpleado(e, consultaBusqueda)).map(emp => (
-                        <TarjetaEmpleado key={emp.id} emp={emp} esLider={false} areas={areas} allowEdit={puedeEditarColaborador(emp)} funciones={funcionesTarjeta} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Ex-colaboradores: se conservan para el histórico */}
                 {esAdmin && (
                   <SeccionDesvinculados
@@ -1189,6 +1223,10 @@ const toggleArea = (id: number) => {
                   />
                 )}
 
+              </div>
+            )}
+
+            {/* Paneles de alta/edición y desvinculación (se abren desde cualquier vista) */}
                 {/* Panel lateral: alta y edición de colaboradores (ficha completa) */}
                 {esAdmin && (modalNuevoEmpAbierto || empleadoEditando) && (
                   <PanelColaborador
@@ -1218,8 +1256,6 @@ const toggleArea = (id: number) => {
                     onConfirm={desvincularColaborador}
                   />
                 )}
-              </div>
-            )}
 
             {/* --- CONTENIDO: ORGANIGRAMA --- */}
             {vista === 'organigrama' && (

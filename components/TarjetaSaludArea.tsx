@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Area, Empleado, FuncionesTarjeta } from '@/lib/tipos'
 import { TarjetaEmpleado } from './TarjetaEmpleado'
 import { useUmbrales, coloresDesempeno } from '@/lib/umbrales'
@@ -25,6 +25,7 @@ interface PropsTarjetaSaludArea {
   opcionesPadre?: Area[];           // áreas válidas para "Depende de" (sin sí misma ni sus sub-áreas)
   empleadosVisibles?: Empleado[];   // si se está buscando: solo los colaboradores que coinciden
   atenuada?: boolean;               // se muestra solo como contexto de un resultado de búsqueda
+  resaltada?: boolean;              // elegida en el buscador: se desplaza hasta ella y se marca
  }
 
 
@@ -47,7 +48,10 @@ export function TarjetaSaludArea({
   opcionesPadre,
   empleadosVisibles,
   atenuada = false,
+  resaltada = false,
 }: PropsTarjetaSaludArea) {
+  const refTarjeta = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (resaltada) refTarjeta.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [resaltada]);
   const u = useUmbrales();
   const listaColaboradores = empleadosVisibles ?? empleadosArea;
   const filtrando = empleadosVisibles !== undefined && empleadosVisibles.length !== empleadosArea.length;
@@ -94,7 +98,7 @@ export function TarjetaSaludArea({
   const iniciales = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
 
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md hover:opacity-100 ${
+    <div ref={refTarjeta} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md hover:opacity-100 scroll-mt-24 ${resaltada ? 'ring-4 ring-amber-300 ring-offset-2' : ''} ${
       ruta.length === 0 ? 'border-slate-300/80' : 'border-slate-200/80'
     } ${atenuada ? 'opacity-60' : ''}`}>
       {/* 1. CABECERA EJECUTIVA DEL ÁREA */}

@@ -7,10 +7,12 @@ interface Props {
   renderArea: (nodo: NodoArea) => ReactNode;
   /** Mientras se busca, todas las ramas se muestran abiertas */
   forzarAbiertas?: boolean;
+  /** Áreas que deben verse abiertas (ancestros del área elegida en el buscador) */
+  revelar?: number[];
 }
 
 // Muestra las áreas como árbol: cada sub-área va debajo de su área padre, con sangría y línea guía.
-export function ArbolAreas({ nodos, renderArea, forzarAbiertas = false }: Props) {
+export function ArbolAreas({ nodos, renderArea, forzarAbiertas = false, revelar = [] }: Props) {
   const [plegadas, setPlegadas] = useState<Set<number>>(new Set());
 
   const togglePlegada = (id: number) =>
@@ -22,7 +24,7 @@ export function ArbolAreas({ nodos, renderArea, forzarAbiertas = false }: Props)
 
   const renderRama = (nodo: NodoArea): ReactNode => {
     const tieneHijos = nodo.hijos.length > 0;
-    const abierta = forzarAbiertas || !plegadas.has(nodo.area.id);
+    const abierta = forzarAbiertas || revelar.includes(nodo.area.id) || !plegadas.has(nodo.area.id);
 
     return (
       <div key={nodo.area.id}>
