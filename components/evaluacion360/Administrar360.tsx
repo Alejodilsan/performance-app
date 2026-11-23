@@ -7,7 +7,7 @@ import {
   type Ciclo, type Competencia, type Frecuencia, type GrupoCompetencia,
 } from '@/lib/evaluacion360'
 import {
-  avanzarFase, cargarBibliotecaBase, eliminarCiclo, eliminarCompetencia, guardarCiclo, guardarCompetencia, reabrirEvaluacion,
+  avanzarFase, cargarBibliotecaBase, cerrarPulso, lanzarPulso, eliminarCiclo, eliminarCompetencia, guardarCiclo, guardarCompetencia, reabrirEvaluacion,
   type DatosCiclo, type DatosCompetencia, type RespuestaEv360,
 } from '@/lib/evaluacion360Api'
 import { mensajeDeError } from '@/lib/errores'
@@ -86,6 +86,8 @@ export function Administrar360({ datos, onCambio }: Props) {
 
       {editando && <FormularioCiclo key={`${editando.id ?? 'nuevo'}-${editando.frecuencia}`} inicial={editando} onCancelar={() => setEditando(null)}
         onGuardar={d => ejecutar(async () => { const r = await guardarCiclo(d); setEditando(null); return r; }, editando.id)} onFrecuencia={f => !editando.id && nuevo(f)} />}
+
+      {ciclo && (datos.pulso || datos.puedeLanzarPulso) && <PanelPulso datos={datos} ejecutar={f => ejecutar(f, ciclo.id)} />}
 
       {ciclo && conResultados(ciclo.estado) && datos.calibracion && <PanelCalibracion datos={datos} />}
 
@@ -263,6 +265,36 @@ function FormularioCompetencia({ inicial, onCancelar, onGuardar }: { inicial: Da
         <button type="button" onClick={onCancelar} className="px-4 py-2 text-xs font-bold text-slate-500">Cancelar</button>
         <button type="button" onClick={() => onGuardar(d)} className="px-4 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl">Guardar</button>
       </div>
+    </div>
+  );
+}
+
+function PanelPulso({ datos, ejecutar }: { datos: RespuestaEv360; ejecutar: (f: () => Promise<unknown>) => void }) {
+  const ciclo = datos.ciclo!;
+  const [cierre, setCierre] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 10); return d.toISOString().slice(0, 10); });
+  const p = datos.pulso;
+  return (
+    <div className="bg-white rounded-3xl border border-acento-200 p-5 flex flex-wrap items-center justify-between gap-4">
+      <div className="max-w-2xl">
+        <h3 className="font-extrabold text-marca-900">📈 Pulso de seguimiento (mitad de ciclo)</h3>
+        <p className="text-xs text-slate-500">
+          Micro-evaluación de 1 a 3 preguntas: los mismos evaluadores de la 360 califican solo las competencias del plan de desarrollo de cada persona.
+          Mide si hay avance antes del próximo corte. Se recomienda lanzarlo a mitad del período, cuando los planes ya tengan unas semanas.
+        </p>
+        {p && <p className="text-xs font-bold text-marca-700 mt-2">{p.estado === 'abierto' ? '🟢 Abierto' : '⚪ Cerrado'} · {p.completadas} de {p.asignadas} respuestas{p.cierra_el && ` · cierra el ${p.cierra_el}`}</p>}
+      </div>
+      {p ? (
+        p.estado === 'abierto' && <button type="button" onClick={() => confirm('¿Cerrar el pulso? Ya no se recibirán respuestas.') && ejecutar(() => cerrarPulso(ciclo.id))}
+          className="px-4 py-2 text-xs font-bold text-marca-700 bg-marca-50 hover:bg-marca-100 rounded-xl">Cerrar pulso</button>
+      ) : (
+        <div className="flex items-end gap-2">
+          <label className="text-[10px] font-black uppercase text-slate-400">Cierra el
+            <input type="date" value={cierre} onChange={e => setCierre(e.target.value)} className="block mt-1 text-sm bg-slate-50 border border-slate-200 rounded-xl p-2" />
+          </label>
+          <button type="button" onClick={() => confirm('Se enviará el pulso a los evaluadores de quienes tienen objetivos de desarrollo ligados a competencias de este ciclo. ¿Lanzar?') && ejecutar(() => lanzarPulso(ciclo.id, cierre || null))}
+            className="px-4 py-2 text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl">Lanzar pulso</button>
+        </div>
+      )}
     </div>
   );
 }

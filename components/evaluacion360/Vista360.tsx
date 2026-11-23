@@ -11,6 +11,8 @@ import { mensajeDeError } from '@/lib/errores'
 import { FormularioEvaluacion } from './FormularioEvaluacion'
 import { InformeIndividual } from './InformeIndividual'
 import { Administrar360 } from './Administrar360'
+import { Desarrollo } from './Desarrollo'
+import { FormularioPulso } from './FormularioPulso'
 
 interface Props {
   areas: Area[];
@@ -19,7 +21,7 @@ interface Props {
   onCambio?: () => void;
 }
 
-type Pestana = 'mias' | 'equipo' | 'resultados' | 'admin' | 'historico';
+type Pestana = 'mias' | 'equipo' | 'resultados' | 'desarrollo' | 'admin' | 'historico';
 
 export function Vista360({ areas, historico, onCambio }: Props) {
   const [cicloId, setCicloId] = useState<number | null>(null);
@@ -29,6 +31,8 @@ export function Vista360({ areas, historico, onCambio }: Props) {
   const [pestana, setPestana] = useState<Pestana | null>(null);
   const [respondiendo, setRespondiendo] = useState<number | null>(null);
   const [informe, setInforme] = useState<number | null>(null);
+  const [pulsoAbierto, setPulsoAbierto] = useState<number | null>(null);
+  const [planDe, setPlanDe] = useState<number | null>(null);
 
   useEffect(() => {
     let vigente = true;
@@ -44,9 +48,10 @@ export function Vista360({ areas, historico, onCambio }: Props) {
   const pestanas = useMemo(() => {
     const p: { id: Pestana; titulo: string; aviso?: number }[] = [];
     if (!datos) return p;
-    if (datos.permisos.miId !== null) p.push({ id: 'mias', titulo: 'Mis evaluaciones', aviso: ciclo?.estado === 'evaluacion' ? datos.mias.filter(m => m.estado === 'pendiente').length : 0 });
+    if (datos.permisos.miId !== null) p.push({ id: 'mias', titulo: 'Mis evaluaciones', aviso: (ciclo?.estado === 'evaluacion' ? datos.mias.filter(m => m.estado === 'pendiente').length : 0) + datos.misPulsos.filter(m => m.estado === 'pendiente').length });
     if (datos.nominacion.length || datos.avance) p.push({ id: 'equipo', titulo: datos.permisos.admin || datos.permisos.auditor ? 'Pares y avance' : 'Mi equipo' });
     if (datos.informes.length) p.push({ id: 'resultados', titulo: 'Resultados' });
+    if (datos.permisos.miId !== null || datos.permisos.admin || datos.permisos.auditor) p.push({ id: 'desarrollo', titulo: '🌱 Desarrollo' });
     if (datos.permisos.admin) p.push({ id: 'admin', titulo: '⚙️ Administrar' });
     if (historico) p.push({ id: 'historico', titulo: 'Histórico' });
     return p;
@@ -56,6 +61,7 @@ export function Vista360({ areas, historico, onCambio }: Props) {
   const limite = ciclo ? limiteDeFase(ciclo) : null;
   const dias = limite ? diasHasta(limite) : null;
   const respondiendoAsig = datos?.mias.find(m => m.id === respondiendo);
+  const pulsoAsig = datos?.misPulsos.find(m => m.id === pulsoAbierto);
 
   return (
     <div className="space-y-6 animate-in fade-in w-full">
@@ -115,7 +121,7 @@ export function Vista360({ areas, historico, onCambio }: Props) {
       {pestanas.length > 1 && (
         <div className="flex flex-wrap gap-1 bg-marca-50 p-1 rounded-xl w-fit" role="tablist">
           {pestanas.map(p => (
-            <button key={p.id} type="button" role="tab" aria-selected={activa === p.id} onClick={() => { setPestana(p.id); setInforme(null); }}
+            <button key={p.id} type="button" role="tab" aria-selected={activa === p.id} onClick={() => { setPestana(p.id); setInforme(null); setPlanDe(null); }}
               className={`px-4 py-2 rounded-lg text-xs font-bold ${activa === p.id ? 'bg-white text-marca-900 shadow-sm' : 'text-marca-500 hover:text-marca-900'}`}>
               {p.titulo}{!!p.aviso && <span className="ml-1.5 bg-acento-600 text-white rounded-full px-1.5 py-0.5 text-[10px]">{p.aviso}</span>}
             </button>
@@ -123,11 +129,13 @@ export function Vista360({ areas, historico, onCambio }: Props) {
         </div>
       )}
 
-      {datos && activa === 'mias' && <MisEvaluaciones datos={datos} onResponder={setRespondiendo} />}
+      {datos && activa === 'mias' && <MisEvaluaciones datos={datos} onResponder={setRespondiendo} onPulso={setPulsoAbierto} />}
       {datos && activa === 'equipo' && <Equipo datos={datos} areas={areas} onCambio={() => recargar()} />}
       {datos && activa === 'resultados' && (informe
-        ? <InformeIndividual participanteId={informe} onVolver={() => setInforme(null)} onCambio={() => recargar()} />
+        ? <InformeIndividual participanteId={informe} onVolver={() => setInforme(null)} onCambio={() => recargar()}
+            onIrAlPlan={id => { setPlanDe(id); setInforme(null); setPestana('desarrollo'); }} />
         : <ListaInformes datos={datos} onAbrir={setInforme} />)}
+      {activa === 'desarrollo' && <Desarrollo seleccion={planDe} onSeleccion={setPlanDe} />}
       {datos && activa === 'admin' && <Administrar360 datos={datos} onCambio={recargar} />}
       {activa === 'historico' && historico}
 
@@ -136,22 +144,39 @@ export function Vista360({ areas, historico, onCambio }: Props) {
           items={cuestionarioPara(ciclo.cuestionario, respondiendoAsig.es_lider)} minimoAnonimato={ciclo.minimo_anonimato}
           onCerrar={() => setRespondiendo(null)} onEnviada={() => { setRespondiendo(null); recargar(); }} />
       )}
+      {pulsoAsig && (
+        <FormularioPulso asignacionId={pulsoAsig.id} evaluado={pulsoAsig.evaluado} relacion={pulsoAsig.relacion} competencias={pulsoAsig.competencias}
+          onCerrar={() => setPulsoAbierto(null)} onEnviado={() => { setPulsoAbierto(null); recargar(); }} />
+      )}
     </div>
   );
 }
 
 // ------------------------------------------------------------------
 
-function MisEvaluaciones({ datos, onResponder }: { datos: RespuestaEv360; onResponder: (id: number) => void }) {
+function MisEvaluaciones({ datos, onResponder, onPulso }: { datos: RespuestaEv360; onResponder: (id: number) => void; onPulso: (id: number) => void }) {
   const ciclo = datos.ciclo;
   if (!ciclo || ciclo.estado === 'borrador') return <p className="text-sm text-slate-400">No hay evaluaciones para responder.</p>;
+  const pulsosPendientes = datos.misPulsos.filter(m => m.estado === 'pendiente');
   const abierta = ciclo.estado === 'evaluacion';
   const hechas = datos.mias.filter(m => m.estado === 'completada').length;
   const icono = { auto: '🪞', lider: '🧭', par: '🤝', colaborador: '⬆️' } as const;
   return (
     <div className="space-y-4">
+      {datos.misPulsos.length > 0 && (
+        <div className="bg-gradient-to-r from-acento-50 to-white border border-acento-200 rounded-3xl p-5">
+          <p className="font-extrabold text-marca-900 text-sm">📈 Pulso de seguimiento{datos.pulso?.cierra_el && <span className="font-normal text-xs text-slate-500"> · hasta el {datos.pulso.cierra_el}</span>}</p>
+          <p className="text-[11px] text-slate-600 mb-3">Pocas preguntas sobre los focos del plan de desarrollo de cada persona: ¿se nota el avance desde la última evaluación?</p>
+          <div className="flex flex-wrap gap-2">
+            {datos.misPulsos.map(m => m.estado === 'completada'
+              ? <span key={m.id} className="text-xs font-bold text-acento-700 bg-white border border-acento-200 rounded-xl px-3 py-2">✅ {m.relacion === 'auto' ? 'Mi avance' : m.evaluado.nombre}</span>
+              : <button key={m.id} type="button" onClick={() => onPulso(m.id)} className="text-xs font-bold text-white bg-acento-600 hover:bg-acento-700 rounded-xl px-3 py-2">{m.relacion === 'auto' ? 'Mi avance' : m.evaluado.nombre} · {m.competencias.length} pregunta(s)</button>)}
+          </div>
+          {pulsosPendientes.length === 0 && <p className="text-[11px] text-acento-700 font-bold mt-2">¡Gracias! Respondiste todos tus pulsos.</p>}
+        </div>
+      )}
       {ciclo.estado === 'nominacion' && <p className="text-sm bg-marca-50 border border-marca-100 text-marca-800 rounded-2xl p-4">Los líderes están eligiendo a los pares. La evaluación se abrirá pronto{ciclo.nominacion_hasta && ` (después del ${ciclo.nominacion_hasta})`}.</p>}
-      {indiceFase(ciclo.estado) > indiceFase('evaluacion') && <p className="text-sm bg-slate-50 border border-slate-200 text-slate-600 rounded-2xl p-4">La ventana de evaluación ya cerró.</p>}
+      {indiceFase(ciclo.estado) > indiceFase('evaluacion') && datos.misPulsos.length === 0 && <p className="text-sm bg-slate-50 border border-slate-200 text-slate-600 rounded-2xl p-4">La ventana de evaluación ya cerró.</p>}
       {datos.mias.length > 0 && <p className="text-xs font-bold text-marca-700">{hechas} de {datos.mias.length} completadas</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {datos.mias.map(m => (

@@ -5,13 +5,14 @@ import { useEffect, useState } from 'react'
 import { Legend, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { CUADRANTES, ETIQUETA_GRUPO, formatoPuntaje, type Cuadrante, type ResultadoCompetencia } from '@/lib/evaluacion360'
 import { calibrar, cargarInforme, guardarReflexion, registrarConversacion, type DetalleInforme } from '@/lib/evaluacion360Api'
+import type { ResultadoPulso } from '@/lib/evaluacion360'
 import { mensajeDeError } from '@/lib/errores'
 
-interface Props { participanteId: number; onVolver: () => void; onCambio: () => void }
+interface Props { participanteId: number; onVolver: () => void; onCambio: () => void; onIrAlPlan?: (empleadoId: number) => void }
 
 const colorPuntaje = (n: number | null) => n === null ? 'text-slate-300' : n >= 4 ? 'text-acento-700' : n >= 3 ? 'text-marca-700' : 'text-amber-700';
 
-export function InformeIndividual({ participanteId, onVolver, onCambio }: Props) {
+export function InformeIndividual({ participanteId, onVolver, onCambio, onIrAlPlan }: Props) {
   const [d, setD] = useState<DetalleInforme | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -108,7 +109,19 @@ export function InformeIndividual({ participanteId, onVolver, onCambio }: Props)
         </>
       )}
 
+      {inf.grupos.length > 0 && d.pulso && <Pulso pulso={d.pulso} />}
+
       <Conversacion d={d} onCambio={recargar} />
+
+      {onIrAlPlan && (d.conversado_en || !d.esPropio) && (
+        <div className="bg-gradient-to-r from-marca-900 to-marca-700 text-white rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="font-extrabold">🌱 Del informe a la acción</p>
+            <p className="text-xs text-marca-200">Definan 1–3 objetivos de desarrollo ligados a los puntos ciegos u oportunidades, con acciones 70-20-10 y seguimiento mensual.</p>
+          </div>
+          <button type="button" onClick={() => onIrAlPlan(d.evaluado.id)} className="px-4 py-2 text-xs font-bold text-marca-900 bg-acento-300 hover:bg-acento-200 rounded-xl">Ir al plan de desarrollo →</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -316,6 +329,37 @@ function Conversacion({ d, onCambio }: { d: DetalleInforme; onCambio: () => void
           </>
         ) : <p className="text-sm text-slate-700 whitespace-pre-wrap mt-3">{d.reflexion || '—'}</p>}
       </div>
+    </div>
+  );
+}
+
+function Pulso({ pulso }: { pulso: ResultadoPulso }) {
+  return (
+    <div className="bg-white rounded-3xl border border-acento-200 p-5">
+      <h3 className="font-extrabold text-marca-900 text-sm">📈 Pulso de seguimiento</h3>
+      <p className="text-[11px] text-slate-500 mb-4">
+        Cómo ven hoy los focos del plan de desarrollo frente al resultado del ciclo.{' '}
+        {pulso.fuente === 'grupo' ? `${pulso.respondieron} evaluador(es) respondieron.` : pulso.fuente === 'lider' ? 'Por anonimato, solo se muestra la mirada del líder (aún no hay suficientes respuestas del resto).' : 'Aún no hay respuestas suficientes.'}
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {pulso.competencias.map(c => (
+          <div key={c.id} className="border border-marca-100 rounded-2xl p-4">
+            <p className="font-bold text-marca-900 text-sm">{c.nombre}</p>
+            <div className="flex items-end gap-4 mt-2">
+              <div><p className="text-[10px] uppercase font-black text-slate-400">Ciclo</p><p className="font-extrabold text-lg text-slate-500">{formatoPuntaje(c.base)}</p></div>
+              <span className="text-slate-300 pb-1">→</span>
+              <div><p className="text-[10px] uppercase font-black text-slate-400">Hoy</p><p className={`font-extrabold text-lg ${colorPuntaje(c.pulso)}`}>{formatoPuntaje(c.pulso)}</p></div>
+              {c.delta !== null && <span className={`ml-auto text-sm font-extrabold ${c.delta > 0 ? 'text-acento-700' : c.delta < 0 ? 'text-amber-700' : 'text-slate-400'}`}>{c.delta > 0 ? '▲ +' : c.delta < 0 ? '▼ ' : ''}{formatoPuntaje(c.delta)}</span>}
+            </div>
+            {c.auto !== null && <p className="text-[10px] text-slate-400 mt-1">Autopercepción hoy: {formatoPuntaje(c.auto)}</p>}
+          </div>
+        ))}
+      </div>
+      {pulso.comentarios.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {pulso.comentarios.map((c, k) => <li key={k} className="text-sm text-slate-700 bg-slate-50 border border-slate-100 rounded-xl p-3">“{c.texto}”<span className="block text-[10px] font-bold text-marca-400 mt-1">{c.origen}</span></li>)}
+        </ul>
+      )}
     </div>
   );
 }

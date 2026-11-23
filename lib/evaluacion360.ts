@@ -392,3 +392,83 @@ export function distribucion(globales: (number | null)[]) {
 }
 
 export const formatoPuntaje = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n.toFixed(1).replace('.', ','));
+
+// ------------------------------------------------------------------ Pulso de seguimiento (mitad de ciclo)
+
+export interface RespuestaPulso { relacion: Relacion; puntajes: Record<number, number | null>; comentario: string | null }
+export interface ResultadoPulso {
+  /** Respuestas de otras personas (sin la autoevaluación) */
+  respondieron: number;
+  /** 'grupo' = promedio de todos los evaluadores (anonimato cumplido); 'lider' = solo el líder (no anónimo) */
+  fuente: 'grupo' | 'lider' | null;
+  competencias: { id: number; nombre: string; base: number | null; pulso: number | null; auto: number | null; delta: number | null }[];
+  comentarios: { origen: 'Líder' | 'Evaluadores' | 'Autoevaluación'; texto: string }[];
+}
+
+/**
+ * Consolida un pulso: compara cómo ven hoy cada competencia del PDI con el resultado del ciclo (base).
+ * Los evaluadores se promedian juntos solo si son `minimo` o más; si no, se muestra únicamente al líder.
+ */
+export function consolidarPulso(base: { id: number; nombre: string; final: number | null }[], respuestas: RespuestaPulso[], minimo: number): ResultadoPulso {
+  const otros = respuestas.filter(r => r.relacion !== 'auto');
+  const lider = otros.filter(r => r.relacion === 'lider');
+  const auto = respuestas.filter(r => r.relacion === 'auto');
+  const fuente: ResultadoPulso['fuente'] = otros.length >= minimo ? 'grupo' : lider.length ? 'lider' : null;
+  const usados = fuente === 'grupo' ? otros : fuente === 'lider' ? lider : [];
+  const prom = (rs: RespuestaPulso[], id: number) => media(rs.map(r => r.puntajes[id]).filter((v): v is number => typeof v === 'number'));
+  const texto = (v: string | null) => (v || '').trim();
+  return {
+    respondieron: otros.length,
+    fuente,
+    competencias: base.map(c => {
+      const p = prom(usados, c.id);
+      const a = prom(auto, c.id);
+      return { id: c.id, nombre: c.nombre, base: c.final, pulso: p === null ? null : redondear(p), auto: a === null ? null : redondear(a), delta: p === null || c.final === null ? null : redondear(p - c.final) };
+    }),
+    comentarios: [
+      ...lider.map(r => ({ origen: 'Líder' as const, texto: texto(r.comentario) })),
+      ...(fuente === 'grupo' ? otros.filter(r => r.relacion !== 'lider').map(r => ({ origen: 'Evaluadores' as const, texto: texto(r.comentario) })).sort((a, b) => a.texto.localeCompare(b.texto, 'es')) : []),
+      ...auto.map(r => ({ origen: 'Autoevaluación' as const, texto: texto(r.comentario) })),
+    ].filter(c => c.texto),
+  };
+}
+
+// ------------------------------------------------------------------ Indicadores agregados (BI)
+
+export interface PersonaIndicador {
+  informe: Informe | null;
+  anterior: number | null;
+  cumplimiento: number | null;
+  conversado: boolean;
+  asignadas: number;
+  completadas: number;
+}
+
+/**
+ * Agrega los resultados de una población. Los promedios solo se informan con `minimo` personas o más
+ * (con menos, un promedio podría revelar el resultado de alguien).
+ */
+export function agregarIndicadores(personas: PersonaIndicador[], minimo: number) {
+  const conInforme = personas.filter(p => p.informe?.global != null);
+  const promedioSi = (v: number[]) => (v.length >= minimo ? redondear(media(v)!) : null);
+  const globales = conInforme.map(p => p.informe!.global!);
+  const ambos = conInforme.filter(p => p.anterior !== null);
+  const porCompetencia = new Map<string, number[]>();
+  conInforme.forEach(p => p.informe!.competencias.forEach(c => { if (c.final !== null) porCompetencia.set(c.nombre, [...(porCompetencia.get(c.nombre) ?? []), c.final]); }));
+  const brechas = conInforme.filter(p => p.informe!.autoGlobal !== null).map(p => p.informe!.autoGlobal! - p.informe!.global!);
+  return {
+    personas: personas.length,
+    conResultado: conInforme.length,
+    asignadas: personas.reduce((s, p) => s + p.asignadas, 0),
+    completadas: personas.reduce((s, p) => s + p.completadas, 0),
+    conversados: personas.filter(p => p.conversado).length,
+    global: promedioSi(globales),
+    variacion: ambos.length >= minimo ? redondear(media(ambos.map(p => p.informe!.global! - p.anterior!))!) : null,
+    competencias: [...porCompetencia.entries()].map(([nombre, v]) => ({ nombre, promedio: promedioSi(v), n: v.length }))
+      .sort((a, b) => (b.promedio ?? -1) - (a.promedio ?? -1)),
+    brecha: promedioSi(brechas),
+    conPuntoCiego: conInforme.length >= minimo ? conInforme.filter(p => p.informe!.competencias.some(c => c.cuadrante === 'punto_ciego')).length : null,
+    /** Pares (360, cumplimiento KPI) para la correlación; solo se envían agregados */
+    pares: conInforme.filter(p => p.cumplimiento !== null).map(p => [p.informe!.global!, p.cumplimiento!] as [number, number]),
+  };
+}

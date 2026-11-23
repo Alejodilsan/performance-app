@@ -1,125 +1,32 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { errorJson } from '@/lib/servidor/supabaseAdmin'
-import { obtenerContextoSesion, porLotes, type ContextoSesion } from '@/lib/servidor/contexto'
+import { porLotes } from '@/lib/servidor/contexto'
 import {
-  BIBLIOTECA_BASE, PARES_RECOMENDADOS, asignacionesAutomaticas, conResultados, consolidar, cuestionarioPara, distribucion,
-  enCurso, indiceFase, liderDirectoDe, sesgoEvaluadores, siguienteEstado, validarCiclo, validarRespuesta,
-  type Ciclo, type Competencia, type Cuestionario, type EvaluacionRecibida, type GrupoCompetencia, type Relacion,
+  BIBLIOTECA_BASE, PARES_RECOMENDADOS, agregarIndicadores, asignacionesAutomaticas, conResultados, consolidar, consolidarPulso, cuestionarioPara,
+  distribucion, enCurso, liderDirectoDe, sesgoEvaluadores, siguienteEstado, validarCiclo, validarRespuesta,
+  type Ciclo, type Cuestionario, type GrupoCompetencia, type Relacion, type RespuestaPulso,
 } from '@/lib/evaluacion360'
-import type { DetalleInforme, PersonaMin, RespuestaEv360 } from '@/lib/evaluacion360Api'
-import type { Empleado } from '@/lib/tipos'
+import type { DetalleInforme, Indicadores360, RespuestaEv360 } from '@/lib/evaluacion360Api'
+import { aplicarFiltros, type FiltrosBI } from '@/lib/bi'
+import { estadoCheckin, mezcla, pearson, type TipoAccion } from '@/lib/desarrollo'
+import {
+  contexto, error, paginar, persona, numero, cicloPorId, cargarBiblioteca, cargarParticipantes, cargarAsignaciones, cargarRecibidas,
+  pesosDe, puedeVerInforme, type Ok, type Asignacion, type Participante,
+} from '@/lib/servidor/evaluacion360'
 import { mensajeDeError } from '@/lib/errores'
 
 /**
  * Evaluación 360 por ciclos. Todo pasa por aquí (tablas ev360_* sin políticas RLS).
  *  GET  ?ciclo=ID            → lo que la persona necesita del ciclo según su rol y la fase.
- *  GET  ?informe=PARTICIPANTE → informe individual consolidado (anonimato por umbral).
+ *  GET  ?informe=PARTICIPANTE → informe individual consolidado (anonimato por umbral) + pulso de seguimiento.
+ *  GET  ?indicadores=1&area=&sede=&contrato= → indicadores agregados del último ciclo para el BI.
  *  POST { accion, ... }      → ver el switch de POST.
  * Reglas: el Admin configura y avanza fases; el líder directo elige los pares de su equipo y entrega los resultados
  * en una conversación 1:1; la persona ve su informe solo después de esa conversación. Nadie ve quién respondió qué
  * (salvo la evaluación del líder, que no es anónima).
  */
 export const dynamic = 'force-dynamic';
-
-type Ok = Extract<ContextoSesion, { estado: 'ok' }>;
-type Asignacion = { id: number; ciclo_id: number; evaluado_id: number; evaluador_id: number; relacion: Relacion; estado: 'pendiente' | 'completada'; fortaleza: string | null; consejo: string | null };
-type Participante = { id: number; ciclo_id: number; evaluado_id: number; lider_id: number | null; es_lider: boolean; conversado_en: string | null; conversado_por: number | null; acuerdos: string | null; reflexion: string | null };
-
-const FALTA_MIGRACION = 'Falta aplicar la migración 20261124_evaluacion_360.sql en Supabase.';
-
-async function contexto(request: Request): Promise<Ok | NextResponse> {
-  const ctx = await obtenerContextoSesion(request);
-  if (ctx.estado === 'sin_sesion') return errorJson('Sesión no válida.', 401);
-  if (ctx.estado !== 'ok') return errorJson('Sin acceso.', 403);
-  return ctx;
-}
-
-const error = (e: { message: string } | null) => {
-  if (!e) return;
-  throw new Error(/ev360_/.test(e.message) && /does not exist|schema cache|relation/i.test(e.message) ? FALTA_MIGRACION : e.message);
-};
-
-/** Lee todas las filas de una consulta en páginas de 1000 (límite de PostgREST). */
-async function paginar<T>(consulta: (desde: number, hasta: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>): Promise<T[]> {
-  const filas: T[] = [];
-  for (let desde = 0; ; desde += 1000) {
-    const { data, error: e } = await consulta(desde, desde + 999);
-    error(e);
-    filas.push(...((data || []) as T[]));
-    if (!data || data.length < 1000) return filas;
-  }
-}
-
-const persona = (e: Empleado | undefined, id: number): PersonaMin =>
-  e ? { id: e.id, nombre: e.nombre, puesto: e.puesto, area_id: e.area_id } : { id, nombre: 'Colaborador', puesto: '', area_id: null };
-
-const numero = (c: Record<string, unknown>) => ({
-  ...c,
-  peso_lider: Number(c.peso_lider), peso_pares: Number(c.peso_pares), peso_colaboradores: Number(c.peso_colaboradores), minimo_anonimato: Number(c.minimo_anonimato),
-}) as unknown as Ciclo;
-
-async function cicloPorId(admin: SupabaseClient, empresaId: number, id: number): Promise<Ciclo | null> {
-  const { data, error: e } = await admin.from('ev360_ciclos').select('*').eq('id', id).eq('empresa_id', empresaId).maybeSingle();
-  error(e);
-  return data ? numero(data) : null;
-}
-
-async function cargarBiblioteca(admin: SupabaseClient, empresaId: number): Promise<Competencia[]> {
-  const [{ data: comps, error: e1 }, { data: conds, error: e2 }] = await Promise.all([
-    admin.from('ev360_competencias').select('*').eq('empresa_id', empresaId).order('orden').order('id'),
-    admin.from('ev360_conductas').select('*').eq('empresa_id', empresaId).order('orden').order('id'),
-  ]);
-  error(e1); error(e2);
-  return (comps || []).map(c => ({ ...c, conductas: (conds || []).filter(x => x.competencia_id === c.id).map(x => ({ id: x.id, texto: x.texto, orden: x.orden })) })) as Competencia[];
-}
-
-async function cargarParticipantes(admin: SupabaseClient, cicloId: number) {
-  return paginar<Participante>((d, h) => admin.from('ev360_participantes').select('*').eq('ciclo_id', cicloId).order('id').range(d, h));
-}
-async function cargarAsignaciones(admin: SupabaseClient, cicloId: number) {
-  return paginar<Asignacion>((d, h) => admin.from('ev360_asignaciones').select('id, ciclo_id, evaluado_id, evaluador_id, relacion, estado, fortaleza, consejo').eq('ciclo_id', cicloId).order('id').range(d, h));
-}
-
-/** Evaluaciones completadas (con respuestas) por persona evaluada, y las calibraciones del ciclo */
-async function cargarRecibidas(admin: SupabaseClient, cicloId: number, asignaciones: Asignacion[], evaluados: Set<number>) {
-  const completas = asignaciones.filter(a => a.estado === 'completada' && evaluados.has(a.evaluado_id));
-  const respuestas = await porLotes(completas.map(a => a.id), lote =>
-    paginar<{ asignacion_id: number; conducta_id: number; puntaje: number | null }>((d, h) =>
-      admin.from('ev360_respuestas').select('asignacion_id, conducta_id, puntaje').in('asignacion_id', lote).order('asignacion_id').order('conducta_id').range(d, h)));
-  const porAsignacion = new Map<number, Record<number, number | null>>();
-  respuestas.forEach(r => {
-    const m = porAsignacion.get(r.asignacion_id) ?? {};
-    m[r.conducta_id] = r.puntaje === null ? null : Number(r.puntaje);
-    porAsignacion.set(r.asignacion_id, m);
-  });
-  const recibidas = new Map<number, (EvaluacionRecibida & { evaluador_id: number })[]>();
-  completas.forEach(a => {
-    const lista = recibidas.get(a.evaluado_id) ?? [];
-    lista.push({ relacion: a.relacion, respuestas: porAsignacion.get(a.id) ?? {}, fortaleza: a.fortaleza, consejo: a.consejo, evaluador_id: a.evaluador_id });
-    recibidas.set(a.evaluado_id, lista);
-  });
-  const { data: cal, error: e } = await admin.from('ev360_calibraciones').select('evaluado_id, competencia_id, puntaje, justificacion').eq('ciclo_id', cicloId);
-  error(e);
-  const calibraciones = new Map<number, Record<number, { puntaje: number; justificacion: string }>>();
-  (cal || []).forEach(c => {
-    const m = calibraciones.get(c.evaluado_id) ?? {};
-    m[c.competencia_id] = { puntaje: Number(c.puntaje), justificacion: c.justificacion };
-    calibraciones.set(c.evaluado_id, m);
-  });
-  return { recibidas, calibraciones };
-}
-
-const pesosDe = (c: Ciclo) => ({ lider: c.peso_lider, pares: c.peso_pares, colaboradores: c.peso_colaboradores });
-
-/** ¿Puede ver el informe de este participante? */
-function puedeVerInforme(ctx: Ok, ciclo: Ciclo, p: Participante) {
-  if (!conResultados(ciclo.estado)) return false;
-  const miId = ctx.miBase?.id ?? null;
-  if (ctx.perfil.rol === 'admin' || ctx.perfil.rol === 'auditor') return true;
-  if (miId !== null && p.lider_id === miId) return true;
-  return miId !== null && p.evaluado_id === miId && indiceFase(ciclo.estado) >= indiceFase('resultados') && !!p.conversado_en;
-}
 
 // ------------------------------------------------------------------ GET
 
@@ -130,6 +37,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const informe = Number(url.searchParams.get('informe'));
     if (informe) return NextResponse.json(await detalleInforme(ctx, informe));
+    if (url.searchParams.get('indicadores')) return NextResponse.json(await indicadores(ctx, url.searchParams));
     return NextResponse.json(await resumen(ctx, Number(url.searchParams.get('ciclo')) || null));
   } catch (e) {
     console.error('Error en GET /api/evaluaciones:', e);
@@ -155,7 +63,7 @@ async function resumen(ctx: Ok, cicloPedido: number | null): Promise<RespuestaEv
   const vacio: RespuestaEv360 = {
     permisos: { admin: esAdmin, auditor: esAuditor, miId }, ciclos, ciclo: null,
     biblioteca: esAdmin ? await cargarBiblioteca(admin, empresaId) : null,
-    mias: [], nominacion: [], candidatos: [], avance: null, informes: [], calibracion: null,
+    mias: [], nominacion: [], candidatos: [], avance: null, informes: [], calibracion: null, pulso: null, puedeLanzarPulso: false, misPulsos: [],
   };
   if (!elegido) return vacio;
   const ciclo = (await cicloPorId(admin, empresaId, elegido.id))!;
@@ -223,6 +131,17 @@ async function resumen(ctx: Ok, cicloPedido: number | null): Promise<RespuestaEv
       };
     }
   }
+
+  // Pulso de seguimiento (requiere la migración 20261125; sin ella, el resto de la 360 sigue funcionando)
+  const { pulso, disponible } = await cargarPulso(admin, ciclo.id);
+  if (pulso) {
+    const pa = await asignacionesPulso(admin, pulso.id);
+    r.pulso = { id: pulso.id, estado: pulso.estado, cierra_el: pulso.cierra_el, asignadas: pa.length, completadas: pa.filter(a => a.estado === 'completada').length };
+    r.misPulsos = pa.filter(a => a.evaluador_id === miId && (pulso.estado === 'abierto' || a.estado === 'completada'))
+      .map(a => ({ id: a.id, evaluado: p(a.evaluado_id), relacion: a.relacion, estado: a.estado, competencias: a.competencias }))
+      .sort((a, b) => (a.relacion === 'auto' ? -1 : b.relacion === 'auto' ? 1 : 0) || a.evaluado.nombre.localeCompare(b.evaluado.nombre, 'es'));
+  }
+  r.puedeLanzarPulso = esAdmin && disponible && !pulso && (ciclo.estado === 'resultados' || ciclo.estado === 'cerrado');
   return r;
 }
 
@@ -259,6 +178,20 @@ async function detalleInforme(ctx: Ok, participanteId: number): Promise<DetalleI
     break;
   }
 
+  // Pulso: cómo ven hoy las competencias de su PDI frente al resultado del ciclo
+  let pulso: DetalleInforme['pulso'] = null;
+  const { pulso: filaPulso } = await cargarPulso(admin, ciclo.id);
+  if (filaPulso) {
+    const pa = (await asignacionesPulso(admin, filaPulso.id, part.evaluado_id));
+    if (pa.length) {
+      const competencias = new Map<number, string>();
+      pa.forEach(a => a.competencias.forEach(c => competencias.set(c.id, c.nombre)));
+      const respuestas = await respuestasPulso(admin, pa.filter(a => a.estado === 'completada'));
+      const base = [...competencias.entries()].map(([id, nombre]) => ({ id, nombre, final: informe.competencias.find(c => c.id === id)?.final ?? null }));
+      pulso = consolidarPulso(base, respuestas, ciclo.minimo_anonimato);
+    }
+  }
+
   const esAdmin = ctx.perfil.rol === 'admin';
   return {
     participante_id: part.id,
@@ -266,7 +199,7 @@ async function detalleInforme(ctx: Ok, participanteId: number): Promise<DetalleI
     evaluado: persona(porId.get(part.evaluado_id), part.evaluado_id),
     lider: part.lider_id ? persona(porId.get(part.lider_id), part.lider_id) : null,
     es_lider: part.es_lider,
-    informe, anterior,
+    informe, anterior, pulso,
     conversado_en: part.conversado_en,
     conversado_por: part.conversado_por ? porId.get(part.conversado_por)?.nombre ?? null : null,
     acuerdos: part.acuerdos, reflexion: part.reflexion, esPropio,
@@ -288,6 +221,7 @@ interface Cuerpo {
   peso_lider?: number; peso_pares?: number; peso_colaboradores?: number; minimo_anonimato?: number;
   participante_id?: number; evaluador_id?: number; asignacion_id?: number;
   respuestas?: Record<string, number | null>; fortaleza?: string; consejo?: string;
+  ciclo_id?: number; cierra_el?: string | null; puntajes?: Record<string, number | null>; comentario?: string;
   competencia_id?: number; puntaje?: number | null; justificacion?: string; acuerdos?: string; reflexion?: string;
 }
 
@@ -543,6 +477,67 @@ export async function POST(request: Request) {
         error(e);
         return ok();
       }
+
+      // ---------------- Pulso de seguimiento (mitad de ciclo)
+      case 'lanzar_pulso': {
+        if (!esAdmin) return soloAdmin();
+        const ciclo = await cicloPorId(admin, empresaId, Number(b.ciclo_id));
+        if (!ciclo || (ciclo.estado !== 'resultados' && ciclo.estado !== 'cerrado')) return errorJson('El pulso se lanza cuando los resultados del ciclo ya se entregaron.', 400);
+        const { pulso: existente } = await cargarPulso(admin, ciclo.id);
+        if (existente) return errorJson('Este ciclo ya tiene un pulso.', 400);
+        // Personas con objetivos de desarrollo en curso ligados a competencias de este ciclo
+        const { data: objetivos, error: e1 } = await admin.from('pdi_objetivos').select('empleado_id, competencia_id, competencia')
+          .eq('empresa_id', empresaId).eq('ciclo_id', ciclo.id).eq('estado', 'en_curso').not('competencia_id', 'is', null);
+        error(e1);
+        const porPersona = new Map<number, Map<number, string>>();
+        (objetivos || []).forEach(o => {
+          const m = porPersona.get(o.empleado_id) ?? new Map<number, string>();
+          m.set(o.competencia_id, o.competencia || 'Competencia');
+          porPersona.set(o.empleado_id, m);
+        });
+        if (porPersona.size === 0) return errorJson('Nadie tiene objetivos de desarrollo en curso ligados a competencias de este ciclo. Crea los PDI primero.', 400);
+        const asignaciones = (await cargarAsignaciones(admin, ciclo.id))
+          .filter(a => a.estado === 'completada' && porPersona.has(a.evaluado_id) && ctx.activos.some(x => x.id === a.evaluador_id));
+        if (asignaciones.length === 0) return errorJson('No hay evaluadores activos de este ciclo para responder el pulso.', 400);
+        const { data: nuevo, error: e2 } = await admin.from('ev360_pulsos').insert({ ciclo_id: ciclo.id, empresa_id: empresaId, cierra_el: fechaValida(b.cierra_el) }).select('id').single();
+        error(e2);
+        const filas = asignaciones.map(a => ({
+          pulso_id: nuevo!.id, empresa_id: empresaId, evaluado_id: a.evaluado_id, evaluador_id: a.evaluador_id, relacion: a.relacion,
+          competencias: [...porPersona.get(a.evaluado_id)!.entries()].map(([id, nombre]) => ({ id, nombre })),
+        }));
+        try {
+          for (let i = 0; i < filas.length; i += 500) { const { error: e } = await admin.from('ev360_pulso_asignaciones').insert(filas.slice(i, i + 500)); error(e); }
+        } catch (e) {
+          await admin.from('ev360_pulsos').delete().eq('id', nuevo!.id);
+          throw e;
+        }
+        return ok({ personas: porPersona.size, asignaciones: filas.length });
+      }
+      case 'cerrar_pulso': {
+        if (!esAdmin) return soloAdmin();
+        const { error: e } = await admin.from('ev360_pulsos').update({ estado: 'cerrado' }).eq('ciclo_id', Number(b.ciclo_id)).eq('empresa_id', empresaId);
+        error(e);
+        return ok();
+      }
+      case 'responder_pulso': {
+        const { data: asig, error: e } = await admin.from('ev360_pulso_asignaciones').select('*').eq('id', Number(b.asignacion_id)).eq('empresa_id', empresaId).maybeSingle<AsignacionPulso>();
+        error(e);
+        if (!asig || miId === null || asig.evaluador_id !== miId) return errorJson('Este pulso no está asignado a ti.', 403);
+        if (asig.estado === 'completada') return errorJson('Ya respondiste este pulso.', 400);
+        const { data: pulso } = await admin.from('ev360_pulsos').select('estado').eq('id', asig.pulso_id).maybeSingle();
+        if (pulso?.estado !== 'abierto') return errorJson('El pulso ya cerró.', 400);
+        const puntajes = b.puntajes || {};
+        const valor = (id: number) => { const v = puntajes[String(id)]; return v === null || v === undefined ? null : Number(v); };
+        if (asig.competencias.some(c => !(String(c.id) in puntajes))) return errorJson('Responde todas las competencias (o marca "no observado").', 400);
+        if (asig.competencias.some(c => { const v = valor(c.id); return v !== null && !(Number.isInteger(v) && v >= 1 && v <= 5); })) return errorJson('Hay puntajes fuera de la escala.', 400);
+        if (asig.competencias.every(c => valor(c.id) === null)) return errorJson('Califica al menos una competencia.', 400);
+        const { error: e1 } = await admin.from('ev360_pulso_respuestas').upsert(asig.competencias.map(c => ({ asignacion_id: asig.id, competencia_id: c.id, puntaje: valor(c.id) })));
+        error(e1);
+        const { error: e2 } = await admin.from('ev360_pulso_asignaciones').update({ estado: 'completada', comentario: texto(b.comentario) || null, completada_en: new Date().toISOString() })
+          .eq('id', asig.id).eq('estado', 'pendiente');
+        error(e2);
+        return ok();
+      }
     }
     return errorJson('Acción no reconocida.', 400);
   } catch (e) {
@@ -586,4 +581,136 @@ async function lanzar(ctx: Ok, ciclo: Ciclo) {
     await admin.from('ev360_ciclos').update({ estado: 'borrador', cuestionario: null, lanzado_en: null }).eq('id', ciclo.id);
     throw e;
   }
+}
+
+// ------------------------------------------------------------------ Pulso: acceso a datos
+
+type AsignacionPulso = { id: number; pulso_id: number; evaluado_id: number; evaluador_id: number; relacion: Relacion; competencias: { id: number; nombre: string }[]; estado: 'pendiente' | 'completada'; comentario: string | null };
+
+/** Pulso del ciclo; `disponible` = false si aún no se aplicó la migración 20261125 */
+async function cargarPulso(admin: SupabaseClient, cicloId: number): Promise<{ pulso: { id: number; estado: 'abierto' | 'cerrado'; cierra_el: string | null } | null; disponible: boolean }> {
+  const { data, error: e } = await admin.from('ev360_pulsos').select('id, estado, cierra_el').eq('ciclo_id', cicloId).maybeSingle();
+  if (e) return { pulso: null, disponible: false };
+  return { pulso: data, disponible: true };
+}
+
+function asignacionesPulso(admin: SupabaseClient, pulsoId: number, evaluadoId?: number) {
+  return paginar<AsignacionPulso>((d, h) => {
+    let q = admin.from('ev360_pulso_asignaciones').select('id, pulso_id, evaluado_id, evaluador_id, relacion, competencias, estado, comentario').eq('pulso_id', pulsoId);
+    if (evaluadoId !== undefined) q = q.eq('evaluado_id', evaluadoId);
+    return q.order('id').range(d, h);
+  });
+}
+
+async function respuestasPulso(admin: SupabaseClient, asignaciones: AsignacionPulso[]): Promise<(RespuestaPulso & { evaluado_id: number })[]> {
+  const filas = await porLotes(asignaciones.map(a => a.id), lote => paginar<{ asignacion_id: number; competencia_id: number; puntaje: number | null }>((d, h) =>
+    admin.from('ev360_pulso_respuestas').select('asignacion_id, competencia_id, puntaje').in('asignacion_id', lote).order('asignacion_id').order('competencia_id').range(d, h)));
+  return asignaciones.map(a => {
+    const puntajes: Record<number, number | null> = {};
+    filas.filter(f => f.asignacion_id === a.id).forEach(f => { puntajes[f.competencia_id] = f.puntaje === null ? null : Number(f.puntaje); });
+    return { relacion: a.relacion, puntajes, comentario: a.comentario, evaluado_id: a.evaluado_id };
+  });
+}
+
+// ------------------------------------------------------------------ Indicadores agregados para el BI
+
+/**
+ * Indicadores del último ciclo con resultados para la población visible (Admin/Auditor: empresa; líder: su equipo en
+ * cascada), con los filtros del BI. Solo se devuelven agregados; los promedios requieren el mínimo de anonimato.
+ */
+async function indicadores(ctx: Ok, params: URLSearchParams): Promise<Indicadores360> {
+  const { admin, empresaId } = ctx;
+  const filtros: FiltrosBI = { areaId: Number(params.get('area')) || null, sede: params.get('sede') || null, contrato: params.get('contrato') || null };
+  const base = ctx.alcance.tipo === 'empresa' ? ctx.activos : ctx.activos.filter(e => ctx.alcance.equipoIds.includes(e.id));
+  const poblacion = aplicarFiltros(base, filtros, ctx.areas);
+  const ids = new Set(poblacion.map(e => e.id));
+
+  const { data: filas, error: e } = await admin.from('ev360_ciclos').select('*').eq('empresa_id', empresaId)
+    .in('estado', ['calibracion', 'resultados', 'cerrado']).order('periodo_desde', { ascending: false }).limit(2);
+  error(e);
+  const [actual, previo] = (filas || []).map(numero);
+  const vacio: Indicadores360 = {
+    ciclo: null, anterior: null, minimo: 3, personas: poblacion.length, conResultado: 0, asignadas: 0, completadas: 0, conversados: 0,
+    global: null, variacion: null, brecha: null, conPuntoCiego: null, competencias: [], correlacion: null,
+    desarrollo: { conPlan: 0, objetivos: 0, logrados: 0, acciones: 0, accionesHechas: 0, mezcla: { experiencia: 0, relacion: 0, formacion: 0 }, checkinAlDia: 0 },
+    pulso: null,
+  };
+  const desarrollo = await indicadoresDesarrollo(ctx, [...ids]).catch(() => vacio.desarrollo);
+  if (!actual) return { ...vacio, desarrollo };
+
+  const globalesDe = async (ciclo: Ciclo) => {
+    const [participantes, asignaciones] = await Promise.all([cargarParticipantes(admin, ciclo.id), cargarAsignaciones(admin, ciclo.id)]);
+    const delGrupo = participantes.filter(x => ids.has(x.evaluado_id));
+    const { recibidas, calibraciones } = await cargarRecibidas(admin, ciclo.id, asignaciones, new Set(delGrupo.map(x => x.evaluado_id)));
+    return { participantes: delGrupo, asignaciones, informes: new Map(delGrupo.map(x => [x.evaluado_id,
+      consolidar(cuestionarioPara(ciclo.cuestionario, x.es_lider), recibidas.get(x.evaluado_id) ?? [], pesosDe(ciclo), ciclo.minimo_anonimato, calibraciones.get(x.evaluado_id))])) };
+  };
+  const ahora = await globalesDe(actual);
+  const antes = previo ? await globalesDe(previo) : null;
+  const minimo = actual.minimo_anonimato;
+  const cumplimiento = new Map(poblacion.map(e => [e.id, typeof e.cumplimiento_general === 'number' ? Number(e.cumplimiento_general) : null]));
+
+  const agregados = agregarIndicadores(ahora.participantes.map(x => {
+    const recibe = ahora.asignaciones.filter(a => a.evaluado_id === x.evaluado_id && a.relacion !== 'auto');
+    return {
+      informe: ahora.informes.get(x.evaluado_id) ?? null,
+      anterior: antes?.informes.get(x.evaluado_id)?.global ?? null,
+      cumplimiento: cumplimiento.get(x.evaluado_id) ?? null,
+      conversado: !!x.conversado_en,
+      asignadas: recibe.length,
+      completadas: recibe.filter(a => a.estado === 'completada').length,
+    };
+  }), minimo);
+
+  // Pulso: variación promedio (pulso − ciclo) de las competencias del PDI
+  let pulso: Indicadores360['pulso'] = null;
+  const { pulso: filaPulso } = await cargarPulso(admin, actual.id);
+  if (filaPulso) {
+    const pa = (await asignacionesPulso(admin, filaPulso.id)).filter(a => ids.has(a.evaluado_id));
+    const respuestas = await respuestasPulso(admin, pa.filter(a => a.estado === 'completada'));
+    const deltas: number[] = [];
+    let personas = 0;
+    new Set(pa.map(a => a.evaluado_id)).forEach(id => {
+      const comps = new Map<number, string>();
+      pa.filter(a => a.evaluado_id === id).forEach(a => a.competencias.forEach(c => comps.set(c.id, c.nombre)));
+      const inf = ahora.informes.get(id);
+      const r = consolidarPulso([...comps.entries()].map(([cid, nombre]) => ({ id: cid, nombre, final: inf?.competencias.find(c => c.id === cid)?.final ?? null })),
+        respuestas.filter(x => x.evaluado_id === id), minimo);
+      const d = r.competencias.map(c => c.delta).filter((x): x is number => x !== null);
+      if (d.length) { personas++; deltas.push(d.reduce((s, x) => s + x, 0) / d.length); }
+    });
+    pulso = { personas, estado: filaPulso.estado, delta: personas >= minimo ? Math.round((deltas.reduce((s, x) => s + x, 0) / deltas.length) * 100) / 100 : null };
+  }
+
+  return {
+    ciclo: { id: actual.id, nombre: actual.nombre, estado: actual.estado },
+    anterior: previo?.nombre ?? null,
+    minimo,
+    personas: poblacion.length,
+    conResultado: agregados.conResultado, asignadas: agregados.asignadas, completadas: agregados.completadas, conversados: agregados.conversados,
+    global: agregados.global, variacion: agregados.variacion, brecha: agregados.brecha, conPuntoCiego: agregados.conPuntoCiego,
+    competencias: agregados.competencias,
+    correlacion: agregados.pares.length >= Math.max(5, minimo) ? pearson(agregados.pares) : null,
+    desarrollo, pulso,
+  };
+}
+
+async function indicadoresDesarrollo(ctx: Ok, ids: number[]): Promise<Indicadores360['desarrollo']> {
+  const objetivos = await porLotes(ids, lote => paginar<{ id: number; empleado_id: number; estado: string }>((d, h) =>
+    ctx.admin.from('pdi_objetivos').select('id, empleado_id, estado').eq('empresa_id', ctx.empresaId).in('empleado_id', lote).order('id').range(d, h)));
+  const activos = objetivos.filter(o => o.estado === 'en_curso');
+  const acciones = await porLotes(activos.map(o => o.id), lote => paginar<{ tipo: TipoAccion; completada: boolean }>((d, h) =>
+    ctx.admin.from('pdi_acciones').select('tipo, completada').in('objetivo_id', lote).order('id').range(d, h)));
+  const conPlan = [...new Set(activos.map(o => o.empleado_id))];
+  const checkins = await porLotes(conPlan, lote => paginar<{ empleado_id: number; periodo: string }>((d, h) =>
+    ctx.admin.from('pdi_checkins').select('empleado_id, periodo').eq('empresa_id', ctx.empresaId).in('empleado_id', lote).order('periodo', { ascending: false }).range(d, h)));
+  return {
+    conPlan: conPlan.length,
+    objetivos: activos.length,
+    logrados: objetivos.filter(o => o.estado === 'logrado').length,
+    acciones: acciones.length,
+    accionesHechas: acciones.filter(a => a.completada).length,
+    mezcla: mezcla(acciones),
+    checkinAlDia: conPlan.filter(id => estadoCheckin(checkins.find(c => c.empleado_id === id)?.periodo ?? null) === 'al_dia').length,
+  };
 }

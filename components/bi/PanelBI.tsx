@@ -13,6 +13,7 @@ import { EficienciaCosto } from './EficienciaCosto'
 import { EstructuraRotacion } from './EstructuraRotacion'
 import { ModalConfiguracionBI } from './ModalConfiguracionBI'
 import { CalidadDatos } from './CalidadDatos'
+import { Indicadores360 } from './Indicadores360'
 
 interface Props {
   /** Personas que este usuario puede ver (ya filtradas por su alcance, sin incluirse si no es Admin/Auditor) */
@@ -158,6 +159,8 @@ export function PanelBI({ empleados, areasAlcance, areas, etiquetaAlcance, onVer
           </div>
 
           <EstructuraRotacion empleados={filtrados} rotacion={bi.rotacion} />
+
+          <Indicadores360 filtros={filtros} />
 
           <CalidadDatos empleados={filtrados} potencialEvaluado={potencialEvaluado} costos={bi.costos} onCompletar={onAbrirImportacion} />
         </>

@@ -1,6 +1,7 @@
 // Cliente (navegador) de /api/evaluaciones: evaluación 360 por ciclos.
 import { supabase } from './supabase'
-import type { Ciclo, Competencia, Frecuencia, GrupoCompetencia, Informe, Relacion } from './evaluacion360'
+import type { Ciclo, Competencia, Frecuencia, GrupoCompetencia, Informe, Relacion, ResultadoPulso } from './evaluacion360'
+import type { FiltrosBI } from './bi'
 
 export interface PersonaMin { id: number; nombre: string; puesto: string; area_id: number | null }
 
@@ -33,6 +34,24 @@ export interface RespuestaEv360 {
     distribucion: { sinDatos: number; tramos: { etiqueta: string; n: number }[] };
     sesgo: { general: number | null; evaluadores: { evaluador: PersonaMin; n: number; promedio: number; diferencia: number; alerta: boolean }[] };
   } | null;
+  /** Pulso de seguimiento del ciclo (solo ciclos con resultados entregados) */
+  pulso: { id: number; estado: 'abierto' | 'cerrado'; cierra_el: string | null; asignadas: number; completadas: number } | null;
+  /** El Admin puede lanzar el pulso de este ciclo */
+  puedeLanzarPulso: boolean;
+  /** Pulsos que me toca responder */
+  misPulsos: { id: number; evaluado: PersonaMin; relacion: Relacion; estado: 'pendiente' | 'completada'; competencias: { id: number; nombre: string }[] }[];
+}
+
+export interface Indicadores360 {
+  ciclo: { id: number; nombre: string; estado: Ciclo['estado'] } | null;
+  anterior: string | null;
+  minimo: number;
+  personas: number; conResultado: number; asignadas: number; completadas: number; conversados: number;
+  global: number | null; variacion: number | null; brecha: number | null; conPuntoCiego: number | null;
+  competencias: { nombre: string; promedio: number | null; n: number }[];
+  correlacion: number | null;
+  desarrollo: { conPlan: number; objetivos: number; logrados: number; acciones: number; accionesHechas: number; mezcla: Record<'experiencia' | 'relacion' | 'formacion', number>; checkinAlDia: number };
+  pulso: { personas: number; delta: number | null; estado: 'abierto' | 'cerrado' } | null;
 }
 
 export interface DetalleInforme {
@@ -42,6 +61,8 @@ export interface DetalleInforme {
   lider: PersonaMin | null;
   es_lider: boolean;
   informe: Informe;
+  /** Pulso de seguimiento sobre las competencias de su PDI */
+  pulso: ResultadoPulso | null;
   anterior: { ciclo: string; global: number | null } | null;
   conversado_en: string | null;
   conversado_por: string | null;
@@ -66,6 +87,13 @@ async function obtener<T>(query: string): Promise<T> {
 
 export const cargarEv360 = (cicloId?: number | null) => obtener<RespuestaEv360>(cicloId ? `?ciclo=${cicloId}` : '');
 export const cargarInforme = (participanteId: number) => obtener<DetalleInforme>(`?informe=${participanteId}`);
+export function cargarIndicadores360(f: FiltrosBI) {
+  const q = new URLSearchParams({ indicadores: '1' });
+  if (f.areaId !== null) q.set('area', String(f.areaId));
+  if (f.sede) q.set('sede', f.sede);
+  if (f.contrato) q.set('contrato', f.contrato);
+  return obtener<Indicadores360>(`?${q}`);
+}
 
 async function accion(cuerpo: Record<string, unknown>): Promise<{ id?: number; mensaje?: string }> {
   const res = await fetch('/api/evaluaciones', {
@@ -99,3 +127,7 @@ export const calibrar = (participante_id: number, competencia_id: number, puntaj
   accion({ accion: 'calibrar', participante_id, competencia_id, puntaje, justificacion });
 export const registrarConversacion = (participante_id: number, acuerdos: string) => accion({ accion: 'registrar_conversacion', participante_id, acuerdos });
 export const guardarReflexion = (participante_id: number, reflexion: string) => accion({ accion: 'guardar_reflexion', participante_id, reflexion });
+export const lanzarPulso = (ciclo_id: number, cierra_el: string | null) => accion({ accion: 'lanzar_pulso', ciclo_id, cierra_el });
+export const cerrarPulso = (ciclo_id: number) => accion({ accion: 'cerrar_pulso', ciclo_id });
+export const responderPulso = (asignacion_id: number, puntajes: Record<number, number | null>, comentario: string) =>
+  accion({ accion: 'responder_pulso', asignacion_id, puntajes, comentario });
