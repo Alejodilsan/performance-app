@@ -25,7 +25,7 @@ import { BotonLateral } from '@/components/BotonLateral'
 import { Logo } from '@/components/marca/Logo'
 import { AnilloProgreso, BandaProgreso, Logros } from '@/components/marca/Crecimiento'
 import { etiquetaPotencial, logrosDe, mensajeProgreso } from '@/lib/motivacion'
-import { VistaEvaluaciones360 } from '@/components/VistaEvaluaciones360'
+import { Vista360 } from '@/components/evaluacion360/Vista360'
 import { construirArbol, NodoOrganigrama } from '@/components/Organigrama'
 import { TarjetaSaludArea } from '@/components/TarjetaSaludArea'
 import { TarjetaEmpleado } from '@/components/TarjetaEmpleado'
@@ -689,12 +689,6 @@ const toggleArea = (id: number) => {
     recargarDatos();
   }
 
-  async function guardarEvaluacion(evaluadoId: number, tipo: string, puntuacion: number, feedback: string) {
-    if (!miDesempeno) return; if (puntuacion === 0) return alert("Selecciona una puntuación"); if (feedback.trim() === '') return alert("Escribe un comentario");
-    await supabase.from('evaluaciones').insert([{ evaluador_id: miDesempeno.id, evaluado_id: evaluadoId, tipo, puntuacion, feedback, empresa_id: perfil?.empresa_id }]);
-    alert("Evaluación enviada"); recargarDatos();
-  }
-
   async function actualizarDescripcionPuesto(eid: number, desc: string) {
   const targetList = empleados;
   const setter = setEmpleados;
@@ -798,19 +792,10 @@ const toggleArea = (id: number) => {
   }
 
 
-  // A quién evalúa "hacia arriba": su jefe directo o, si no tiene, el líder de su área
-  const miAreaInfo = areas.find(a => a.id === miDesempeno?.area_id);
-  const miLiderId = miDesempeno?.jefe_directo_id ?? (miAreaInfo?.lider_id !== miDesempeno?.id ? miAreaInfo?.lider_id : null);
-  const entradaLider = directorio.find(e => e.id === miLiderId);
-  const miLider: Empleado | undefined = entradaLider
-    ? { ...entradaLider, email: '', cumplimiento_general: 0 }
-    : undefined;
   const nombrePorId = new Map<number, string>([
     ...directorio.map(e => [e.id, e.nombre] as [number, string]),
     ...empleadosDesvinculados.map(e => [e.id, `${e.nombre} (desvinculado)`] as [number, string]),
   ]);
-  // Reportes directos a los que puede hacer evaluación descendente
-  const equipoDirecto = empleados.filter(e => directosIds.has(e.id));
   // Organigrama: con desempeño para Admin/Auditor; informativo (sin cumplimiento) para el resto
   const verDesempenoEnOrganigrama = esAdmin || esAuditor;
   const empleadosOrganigrama: Empleado[] = verDesempenoEnOrganigrama
@@ -1270,22 +1255,17 @@ const toggleArea = (id: number) => {
             {/* --- CONTENIDO: EVALUACIONES 360 --- */}
             {vista === 'okr' && <VistaOKR areas={areas} directorio={directorio} onCambio={recargarDatos} />}
 
-            {vista === 'evaluaciones' && ((esAdmin || esAuditor) ? (
-              <ReporteEvaluaciones titulo="📋 Reporte Global de Evaluaciones 360" evaluaciones={evaluaciones} nombrePorId={nombrePorId} />
-            ) : (
-              <div className="space-y-8">
-                <VistaEvaluaciones360 miDesempeno={miDesempeno} esLider={esLider} equipo={equipoDirecto} miLider={miLider} evaluaciones={evaluaciones} onSave={guardarEvaluacion} />
-                {tieneEquipo && (
-                  <ReporteEvaluaciones
-                    titulo="📋 Evaluaciones recibidas por mi equipo"
-                    evaluaciones={evaluaciones.filter(ev => ev.evaluado_id !== miDesempeno?.id && dataParaMetricas.some(e => e.id === ev.evaluado_id))}
-                    nombrePorId={nombrePorId}
-                    anonimizarAscendentes
-                    vacio="Tu equipo aún no ha recibido evaluaciones."
-                  />
-                )}
-              </div>
-            ))}
+            {vista === 'evaluaciones' && (
+              <Vista360 areas={areas} onCambio={recargarDatos} historico={evaluaciones.length > 0 ? (
+                <ReporteEvaluaciones
+                  titulo="📋 Evaluaciones del modelo anterior"
+                  evaluaciones={(esAdmin || esAuditor) ? evaluaciones : evaluaciones.filter(ev => ev.evaluador_id === miDesempeno?.id || (ev.evaluado_id !== miDesempeno?.id && dataParaMetricas.some(e => e.id === ev.evaluado_id)))}
+                  nombrePorId={nombrePorId}
+                  anonimizarAscendentes
+                  vacio="No hay evaluaciones del modelo anterior."
+                />
+              ) : undefined} />
+            )}
 
             {/* --- CONTENIDO: INFORMES (BI) --- */}
             {vista === 'informes' && puedeVerTablero && (
