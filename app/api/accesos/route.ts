@@ -101,9 +101,9 @@ async function verificarNoEsUltimoAdmin(admin: SupabaseClient, empresaId: number
 }
 
 /** Busca una cuenta existente por correo (perfiles primero; si no, en Auth). */
-async function buscarCuentaPorEmail(admin: SupabaseClient, email: string): Promise<{ id: string; empresaId: number | null } | null> {
+async function buscarCuentaPorEmail(admin: SupabaseClient, email: string): Promise<{ id: string; empresaId: number | null; enPerfiles: boolean } | null> {
   const { data: perfilExistente } = await admin.from('perfiles').select('id, empresa_id').ilike('email', email).maybeSingle();
-  if (perfilExistente) return { id: perfilExistente.id, empresaId: perfilExistente.empresa_id };
+  if (perfilExistente) return { id: perfilExistente.id, empresaId: perfilExistente.empresa_id, enPerfiles: true };
 
   for (let page = 1; page <= 20; page++) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
@@ -111,7 +111,7 @@ async function buscarCuentaPorEmail(admin: SupabaseClient, email: string): Promi
     const encontrado = data.users.find(u => u.email?.toLowerCase() === email);
     if (encontrado) {
       const empresaId = Number(encontrado.app_metadata?.empresa_id ?? encontrado.user_metadata?.empresa_id);
-      return { id: encontrado.id, empresaId: Number.isFinite(empresaId) ? empresaId : null };
+      return { id: encontrado.id, empresaId: Number.isFinite(empresaId) ? empresaId : null, enPerfiles: false };
     }
     if (data.users.length < 1000) break;
   }
@@ -151,7 +151,13 @@ async function otorgarAccesos(admin: SupabaseClient, usuario: User, perfil: Perf
             fallo('Ese correo ya tiene una cuenta en otra organización.');
             continue;
           }
-          userId = existente.id;
+          if (existente.enPerfiles) userId = existente.id;
+          else {
+            // Cuenta sin perfil (p. ej. creada por registro público o un intento anterior que falló): no se adopta,
+            // porque quien la creó podría tener una sesión abierta. Se elimina y se crea una nueva más abajo.
+            const { error: errBorrar } = await admin.auth.admin.deleteUser(existente.id);
+            if (errBorrar) { fallo(`Existe una cuenta previa con ese correo que no se pudo reemplazar: ${errBorrar.message}`); continue; }
+          }
         }
       }
 

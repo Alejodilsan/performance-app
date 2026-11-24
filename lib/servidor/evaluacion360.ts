@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { errorJson } from './supabaseAdmin'
 import { obtenerContextoSesion, porLotes, type ContextoSesion } from './contexto'
-import { conResultados, indiceFase, type Ciclo, type Competencia, type EvaluacionRecibida, type Relacion } from '@/lib/evaluacion360'
+import { BIBLIOTECA_BASE, conResultados, indiceFase, type Ciclo, type Competencia, type EvaluacionRecibida, type Relacion } from '@/lib/evaluacion360'
 import type { PersonaMin } from '@/lib/evaluacion360Api'
 import type { Empleado } from '@/lib/tipos'
 
@@ -108,3 +108,13 @@ export function puedeVerInforme(ctx: Ok, ciclo: Ciclo, p: Participante) {
   return miId !== null && p.evaluado_id === miId && indiceFase(ciclo.estado) >= indiceFase('resultados') && !!p.conversado_en;
 }
 
+
+/** Carga la biblioteca base de competencias 360 en una empresa (que aún no tiene ninguna). */
+export async function sembrarBiblioteca360(admin: SupabaseClient, empresaId: number) {
+  for (const [i, c] of BIBLIOTECA_BASE.entries()) {
+    const { data, error: e } = await admin.from('ev360_competencias').insert({ empresa_id: empresaId, nombre: c.nombre, descripcion: c.descripcion, grupo: c.grupo, orden: i }).select('id').single();
+    error(e);
+    const { error: e2 } = await admin.from('ev360_conductas').insert(c.conductas.map((t, j) => ({ competencia_id: data!.id, empresa_id: empresaId, texto: t, orden: j })));
+    error(e2);
+  }
+}

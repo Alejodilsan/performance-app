@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { errorJson } from '@/lib/servidor/supabaseAdmin'
 import { porLotes } from '@/lib/servidor/contexto'
 import {
-  BIBLIOTECA_BASE, PARES_RECOMENDADOS, agregarIndicadores, asignacionesAutomaticas, conResultados, consolidar, consolidarPulso, cuestionarioPara,
+  PARES_RECOMENDADOS, agregarIndicadores, asignacionesAutomaticas, conResultados, consolidar, consolidarPulso, cuestionarioPara,
   distribucion, enCurso, liderDirectoDe, sesgoEvaluadores, siguienteEstado, validarCiclo, validarRespuesta,
   type Ciclo, type Cuestionario, type GrupoCompetencia, type Relacion, type RespuestaPulso,
 } from '@/lib/evaluacion360'
@@ -12,7 +12,7 @@ import { aplicarFiltros, type FiltrosBI } from '@/lib/bi'
 import { estadoCheckin, mezcla, pearson, type TipoAccion } from '@/lib/desarrollo'
 import {
   contexto, error, paginar, persona, numero, cicloPorId, cargarBiblioteca, cargarParticipantes, cargarAsignaciones, cargarRecibidas,
-  pesosDe, puedeVerInforme, type Ok, type Asignacion, type Participante,
+  pesosDe, puedeVerInforme, sembrarBiblioteca360, type Ok, type Asignacion, type Participante,
 } from '@/lib/servidor/evaluacion360'
 import { mensajeDeError } from '@/lib/errores'
 
@@ -252,12 +252,7 @@ export async function POST(request: Request) {
         if (!esAdmin) return soloAdmin();
         const actual = await cargarBiblioteca(admin, empresaId);
         if (actual.length) return errorJson('La empresa ya tiene competencias; edítalas directamente.', 400);
-        for (const [i, c] of BIBLIOTECA_BASE.entries()) {
-          const { data, error: e } = await admin.from('ev360_competencias').insert({ empresa_id: empresaId, nombre: c.nombre, descripcion: c.descripcion, grupo: c.grupo, orden: i }).select('id').single();
-          error(e);
-          const { error: e2 } = await admin.from('ev360_conductas').insert(c.conductas.map((t, j) => ({ competencia_id: data!.id, empresa_id: empresaId, texto: t, orden: j })));
-          error(e2);
-        }
+        await sembrarBiblioteca360(admin, empresaId);
         return ok();
       }
       case 'guardar_competencia': {
