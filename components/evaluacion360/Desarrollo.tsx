@@ -57,7 +57,7 @@ export function Desarrollo({ seleccion, onSeleccion }: { seleccion: number | nul
         <h3 className="text-xl font-extrabold">Planes de desarrollo 70-20-10</h3>
         <p className="text-xs text-marca-200 mt-1 max-w-2xl">1–3 objetivos ligados a una competencia del informe 360. Cerca del 70% de las acciones son de experiencia (aprender haciendo), 20% de relaciones (mentoría, feedback) y 10% de formación. El líder y la persona conversan el avance cada mes.</p>
         {(pendientes > 0 || sinPlan > 0) && (
-          <p className="mt-3 text-xs font-bold text-amber-200">{pendientes > 0 && `⏰ ${pendientes} check-in(s) pendientes este mes`}{pendientes > 0 && sinPlan > 0 && ' · '}{sinPlan > 0 && `📝 ${sinPlan} persona(s) de tu equipo directo sin plan`}</p>
+          <p className="mt-3 text-xs font-bold text-amber-200">{pendientes > 0 && `⏰ ${pendientes} check-in(s) pendientes este mes`}{pendientes > 0 && sinPlan > 0 && ' · '}{sinPlan > 0 && `📝 ${sinPlan} persona(s) sin plan de desarrollo`}</p>
         )}
       </div>
 

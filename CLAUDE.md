@@ -13,6 +13,7 @@ npm run dev     # dev server on http://localhost:3000
 npm run build   # production build (also the de-facto type check)
 npm run lint    # eslint (next core-web-vitals + typescript configs)
 npm run crear-empresa   # alta de una empresa nueva + su primer Admin (usa .env.local; --simular, --si)
+npm run semilla-demo -- --empresa <id>   # carga una organización FICTICIA completa en una empresa vacía (demos/capturas)
 ```
 
 There is no test suite.

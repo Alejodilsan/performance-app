@@ -1244,9 +1244,10 @@ const toggleArea = (id: number) => {
 
             {/* --- CONTENIDO: ORGANIGRAMA --- */}
             {vista === 'organigrama' && (
-              <div className="bg-slate-100 p-8 rounded-2xl overflow-x-auto overflow-y-auto h-[750px] flex justify-center items-start animate-in zoom-in-95 border border-slate-200 shadow-inner custom-scrollbar relative">
+              <div className="bg-slate-100 p-8 rounded-2xl overflow-x-auto overflow-y-auto h-[750px] flex items-start animate-in zoom-in-95 border border-slate-200 shadow-inner custom-scrollbar relative">
                 <div className="absolute top-4 left-4 text-slate-300 font-bold text-2xl tracking-widest opacity-50 select-none">ESTRUCTURA ORGANIZACIONAL</div>
-                <div className="flex gap-16 pb-32 pt-10">
+                {/* mx-auto centra el árbol cuando cabe y deja alcanzar ambos extremos cuando es más ancho que el panel */}
+                <div className="flex gap-16 pb-32 pt-10 mx-auto">
                   {construirArbol(areas, empleadosOrganigrama).map(areaRaiz => (<NodoOrganigrama key={areaRaiz.id} area={areaRaiz} mostrarCumplimiento={verDesempenoEnOrganigrama} />))}
                 </div>
               </div>
