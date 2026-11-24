@@ -89,7 +89,8 @@ export async function altaEmpresa(admin: SupabaseClient, datos: DatosAltaEmpresa
     const userId = creado.user.id;
     deshacer.push({ paso: 'cuenta', f: () => admin.auth.admin.deleteUser(userId) });
 
-    ok(await admin.from('perfiles').insert({ id: userId, email: datos.adminEmail, nombre: datos.adminNombre, rol: 'admin', empresa_id: empresaId }), 'Perfil Admin');
+    // upsert: un disparador de Supabase puede crear el perfil al crear la cuenta; aquí se completa con la empresa y el rol
+    ok(await admin.from('perfiles').upsert({ id: userId, email: datos.adminEmail, nombre: datos.adminNombre, rol: 'admin', empresa_id: empresaId }), 'Perfil Admin');
     deshacer.push({ paso: 'perfil', f: () => admin.from('perfiles').delete().eq('id', userId) });
 
     const empleado = ok(await admin.from('empleados').insert({
